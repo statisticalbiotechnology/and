@@ -33,7 +33,10 @@ sudo make install
 
 There are shell scripts under <mark style="background:gray">/admin/builders/</mark> for automatic installation. One options is therefore to simply run the script named with the OS you are using.
 
-Another option, and also the preferred way of doing it, is to manually build through CMake and Make. The repository comes with several individual modules that can be built independently. There are two main modules that are needed for normal runs, namely "perculator" and "converters". perculator build files are found in the root directory <mark style="background:gray">/</mark> and converters under <mark style="background:gray">/src/converters/</mark> . Directly use CMake with those directories from where you chose to build. Don't build in the same directory as the source files. CMake have [flags](https://cmake.org/cmake/help/v3.6/manual/cmake.1.html) that can be set to enable for instance debug-information or accompanying unit tests.
+Another option, and also the preferred way of doing it, is to manually build through CMake and Make. The repository comes with several individual modules that can be built independently. There are two main modules that are needed for normal runs, namely "perculator" and "converters". perculator build files are found in the root directory <mark style="background:gray">/</mark> and converters under <mark style="background:gray">/src/converters/</mark> . Directly use CMake with those directories from where you chose to build. Don't build in the same directory as the source files. CMake have [flags](https://cmake.org/cmake/help/v3.6/manual/cmake.1.html) that can be set to enable for instance debug-information or accompanying unit tests. Example of a CMake call in debug mode: 
+```
+sudo cmake ../percolator/ -DCMAKE_BUILD_TYPE=Debug -DGOOGLE_TEST=ON -DBUILD_SHARED_LIBS=ON -G "Unix Makefiles"
+```
 
 
 
