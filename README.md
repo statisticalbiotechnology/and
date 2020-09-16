@@ -7,7 +7,7 @@ This repository contains thoughts about what may be hard to know when installing
 ##  Software
 The following installations need to be made prior to manually building the source code:
 
-```shell
+```
 sudo apt-get install cmake
 sudo apt-get update
 sudo apt-get upgrade
@@ -17,10 +17,10 @@ sudo apt-get install libboost-all-dev
 sudo apt-get install xsdcxx
 sudo apt-get install sqlite3 libsqlite3-dev
 ```
-Additionally, the latest version of Xerces-C++ must be retrieved manually, as apt-get only retrieves version 3.2.0, whilst 3.2.3 is seems necessary. To get the latest version do the following:
+Additionally, the latest version of Xerces-C++ must be retrieved manually, as apt-get only retrieves version 3.2.0 whilst 3.2.3 seems necessary. To get the latest version do the following:
 
 
-```shell
+```
 wget http://apache.mirrors.spacedump.net//xerces/c/3/sources/xerces-c-3.2.3.zip
 unzip xerces-c-3.2.3.zip 
 mkdir buildXerces && cd buildXerces
