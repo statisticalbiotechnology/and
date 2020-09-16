@@ -17,7 +17,7 @@ sudo apt-get install libboost-all-dev
 sudo apt-get install xsdcxx
 sudo apt-get install sqlite3 libsqlite3-dev
 ```
-Additionally, the latest version of Xerces-C++ must be retrieved manually, as apt-get only retrieves version 3.2.0 whilst 3.2.3 seems necessary. To get the latest version do the following:
+Additionally, the latest version of Xerces-C++ must be retrieved manually, as apt-get only retrieves version 3.2.0, whilst 3.2.3 is seems necessary. To get the latest version do the following:
 
 
 ```
@@ -27,6 +27,15 @@ mkdir buildXerces && cd buildXerces
 cmake ../xerces-c-3.2.3/
 sudo make install
 ```
+
+
+##  Building
+
+There are shell scripts under <mark style="background:gray">/admin/builders/</mark> for automatic installation. One options is therefore to simply run the script named with the OS you are using.
+
+Another option, and also the preferred way of doing it, is to manually build through CMake and Make. The repository comes with several individual modules that can be built independently. There are two main modules that are needed for normal runs, namely "perculator" and "converters". perculator build files are found in the root directory <mark style="background:gray">/</mark> and converters under <mark style="background:gray">/src/converters/</mark> . Directly use CMake with those directories from where you chose to build. Don't build in the same directory as the source files. CMake have [flags](https://cmake.org/cmake/help/v3.6/manual/cmake.1.html) that can be set to enable for instance debug-information or accompanying unit tests.
+
+
 
 
 <p align="left" vertical-align="bottom">
