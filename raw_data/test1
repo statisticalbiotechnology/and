@@ -1,0 +1,34 @@
+PID:			31416
+Flags:			 -QL
+PIDs:			None
+Input:			/media/hdd/percolatortests/performance/input_files/Pandey.25M.tab
+Number of iterations:	10
+Comments:		Replacing mergeCpCnPairs with QL.
+Testing command:	/media/hdd/percolatortests/performance/executables/builds/percolator1/data/system_tests/percolator/../../../src/percolator -X tempPOut.xml /media/hdd/percolatortests/performance/input_files/Pandey.25M.tab  -QL
+Running subprocess: 31417
+Running subprocess: 2627
+Running subprocess: 2732
+Running subprocess: 2905
+Running subprocess: 3043
+Running subprocess: 3364
+Running subprocess: 21004
+Running subprocess: 21196
+Running subprocess: 22020
+Running subprocess: 22109
+-----------------------------------
+Execution time in CPU and wall clock seconds, precision set to 3 decimals.
+Run 1	CPU: 9021.000 Wall: 3534
+Run 2	CPU: 8611.000 Wall: 3367
+Run 3	CPU: 8603.000 Wall: 3369
+Run 4	CPU: 8593.000 Wall: 3358
+Run 5	CPU: 8568.000 Wall: 3351
+Run 6	CPU: 8745.000 Wall: 3421
+Run 7	CPU: 8546.000 Wall: 3348
+Run 8	CPU: 8567.000 Wall: 3364
+Run 9	CPU: 8549.000 Wall: 3349
+Run 10	CPU: 8610.000 Wall: 3364
+-----------------------------------
+Max	CPU: 9021.000 Wall: 3534
+Min	CPU: 8546.000 Wall: 3348
+Mean	CPU: 8641.300 Wall: 3382.5
+...TEST SUCCEEDED

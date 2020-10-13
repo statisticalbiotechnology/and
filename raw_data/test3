@@ -1,0 +1,25 @@
+PID:			9073
+Flags:			 -QL
+Input:			/media/hdd/percolatortests/performance/input_files/Pandey.25M.tab
+Await PIDs:		None
+Await other tests?	True
+Number of iterations:	5
+Comments:		QL on CrossValidation::train() function only (and the sub-function doStep()).
+Testing command:	/media/hdd/percolatortests/performance/executables/builds/percolator3/data/system_tests/percolator/../../../src/percolator -X tempPOut.xml /media/hdd/percolatortests/performance/input_files/Pandey.25M.tab  -QL
+Running subprocess: 9074
+Running subprocess: 10056
+Running subprocess: 10424
+Running subprocess: 12113
+Running subprocess: 12541
+-----------------------------------
+Execution time in CPU and wall clock seconds, precision set to 3 decimals.
+Run 1	CPU: 12662.532 Wall: 4720
+Run 2	CPU: 12656.315 Wall: 4716
+Run 3	CPU: 12616.767 Wall: 4723
+Run 4	CPU: 12560.031 Wall: 4709
+Run 5	CPU: 12574.947 Wall: 4696
+-----------------------------------
+Max	CPU: 12662.532 Wall: 4723
+Min	CPU: 12560.031 Wall: 4696
+Mean	CPU: 12614.118 Wall: 4712.8
+...TEST SUCCEEDED

@@ -1,0 +1,35 @@
+PID:			24524
+Flags:			
+Input:			/media/hdd/percolatortests/performance/input_files/Pandey.25M.tab
+Await PIDs:		None
+Await other tests?	True
+Number of iterations:	10
+Comments:		Normal rn without QL.
+Testing command:	/media/hdd/percolatortests/performance/executables/builds/percolator1/data/system_tests/percolator/../../../src/percolator -X tempPOut.xml /media/hdd/percolatortests/performance/input_files/Pandey.25M.tab 
+Running subprocess: 24525
+Running subprocess: 26067
+Running subprocess: 26452
+Running subprocess: 28202
+Running subprocess: 28365
+Running subprocess: 28548
+Running subprocess: 28716
+Running subprocess: 28811
+Running subprocess: 28987
+Running subprocess: 29136
+-----------------------------------
+Execution time in CPU and wall clock seconds, precision set to 3 decimals.
+Run 1	CPU: 9682.000 Wall: 3734
+Run 2	CPU: 9635.000 Wall: 3710
+Run 3	CPU: 9602.000 Wall: 3700
+Run 4	CPU: 9618.000 Wall: 3707
+Run 5	CPU: 9624.000 Wall: 3715
+Run 6	CPU: 9618.000 Wall: 3713
+Run 7	CPU: 9634.000 Wall: 3719
+Run 8	CPU: 9620.000 Wall: 3710
+Run 9	CPU: 9580.000 Wall: 3694
+Run 10	CPU: 9625.000 Wall: 3718
+-----------------------------------
+Max	CPU: 9682.000 Wall: 3734
+Min	CPU: 9580.000 Wall: 3694
+Mean	CPU: 9623.800 Wall: 3712
+...TEST SUCCEEDED

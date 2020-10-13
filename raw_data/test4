@@ -1,0 +1,38 @@
+Waiting for PID 9073 to finish. (2020-10-09 10:52:35)
+Waiting for PID 9073 to finish. (2020-10-09 12:22:39)
+Waiting for PID 9073 to finish. (2020-10-09 15:22:49)
+PID:			9870
+Flags:			
+Input:			/media/hdd/percolatortests/performance/input_files/Pandey.25M.tab
+Await PIDs:		None
+Await other tests?	True
+Number of iterations:	10
+Comments:		Same as original Percolator, but use parallel sorting in calcScores.
+Testing command:	/media/hdd/percolatortests/performance/executables/builds/percolatorParallel/data/system_tests/percolator/../../../src/percolator -X tempPOut.xml /media/hdd/percolatortests/performance/input_files/Pandey.25M.tab 
+Running subprocess: 12669
+Running subprocess: 12795
+Running subprocess: 13213
+Running subprocess: 13661
+Running subprocess: 13882
+Running subprocess: 14040
+Running subprocess: 14793
+Running subprocess: 14889
+Running subprocess: 15002
+Running subprocess: 16120
+-----------------------------------
+Execution time in CPU and wall clock seconds, precision set to 3 decimals.
+Run 1	CPU: 9573.414 Wall: 3697
+Run 2	CPU: 9568.020 Wall: 3691
+Run 3	CPU: 9546.058 Wall: 3697
+Run 4	CPU: 9568.750 Wall: 3684
+Run 5	CPU: 9584.119 Wall: 3695
+Run 6	CPU: 9615.844 Wall: 3706
+Run 7	CPU: 9590.124 Wall: 3706
+Run 8	CPU: 9620.572 Wall: 3698
+Run 9	CPU: 9608.428 Wall: 3704
+Run 10	CPU: 9615.432 Wall: 3704
+-----------------------------------
+Max	CPU: 9620.572 Wall: 3706
+Min	CPU: 9546.058 Wall: 3684
+Mean	CPU: 9589.076 Wall: 3698.2
+...TEST SUCCEEDED

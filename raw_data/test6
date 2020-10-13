@@ -1,0 +1,45 @@
+Waiting for PID 9073 to finish. (2020-10-09 13:57:40)
+Waiting for PID 9073 to finish. (2020-10-09 15:27:45)
+Waiting for PID 9870 to finish. (2020-10-09 17:40:37)
+Waiting for PID 9870 to finish. (2020-10-09 19:10:42)
+Waiting for PID 9870 to finish. (2020-10-09 22:10:52)
+Waiting for PID 9870 to finish. (2020-10-10 04:11:11)
+Waiting for PID 11318 to finish. (2020-10-10 04:47:12)
+Waiting for PID 11318 to finish. (2020-10-10 06:17:17)
+Waiting for PID 11318 to finish. (2020-10-10 09:17:27)
+Waiting for PID 11318 to finish. (2020-10-10 15:17:45)
+PID:			12028
+Flags:			 -QL
+Input:			/media/hdd/percolatortests/performance/input_files/Pandey.25M.tab
+Await PIDs:		None
+Await other tests?	True
+Number of iterations:	10
+Comments:		Only parallelize QL and use QL as the original version does in CrossValidation::mergeCpCnPairs.
+Testing command:	/media/hdd/percolatortests/performance/executables/builds/percolatorQLParallel/data/system_tests/percolator/../../../src/percolator -X tempPOut.xml /media/hdd/percolatortests/performance/input_files/Pandey.25M.tab  -QL
+Running subprocess: 17683
+Running subprocess: 17815
+Running subprocess: 17911
+Running subprocess: 18012
+Running subprocess: 18158
+Running subprocess: 18253
+Running subprocess: 18376
+Running subprocess: 18468
+Running subprocess: 18583
+Running subprocess: 19340
+-----------------------------------
+Execution time in CPU and wall clock seconds, precision set to 3 decimals.
+Run 1	CPU: 8584.805 Wall: 3349
+Run 2	CPU: 8614.067 Wall: 3370
+Run 3	CPU: 8595.772 Wall: 3354
+Run 4	CPU: 8626.616 Wall: 3375
+Run 5	CPU: 8624.855 Wall: 3360
+Run 6	CPU: 8591.391 Wall: 3361
+Run 7	CPU: 8616.661 Wall: 3369
+Run 8	CPU: 8629.892 Wall: 3374
+Run 9	CPU: 8587.665 Wall: 3365
+Run 10	CPU: 8640.103 Wall: 3368
+-----------------------------------
+Max	CPU: 8640.103 Wall: 3375
+Min	CPU: 8584.805 Wall: 3349
+Mean	CPU: 8611.183 Wall: 3364.5
+...TEST SUCCEEDED
