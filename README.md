@@ -17,7 +17,7 @@ sudo apt-get install libboost-all-dev
 sudo apt-get install xsdcxx
 sudo apt-get install sqlite3 libsqlite3-dev
 ```
-Additionally, the latest version of Xerces-C++ must be retrieved manually, as apt-get only retrieves version 3.2.0, whilst 3.2.3 is seems necessary. To get the latest version do the following:
+Additionally, the latest version of Xerces-C++ must be retrieved manually, as apt-get only retrieves version 3.2.0, whilst 3.2.3 seems necessary. To get the latest version do the following:
 
 
 ```
