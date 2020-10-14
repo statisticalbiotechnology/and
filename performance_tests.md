@@ -12,7 +12,7 @@ It's necessary to evaluate the performance before deciding on making changes to 
 
 ## Tests
 
-The most interesting data retrieved from tests were the minimum and average run-time it took to run Percolator. Most tests were repeted 10 or 5 times. The input data contained 25 million lines of PSMs. C++14 was used for these tests and the time it took reading the input from disk not accounted for.
+The most interesting data retrieved from tests were the minimum and average run-time it took to run Percolator. Most tests were repeted 10 or 5 times. The input data contained 25 million lines of PSMs. Percolator was compiled using C++14, and the time it took reading the input from disk was not accounted for.
 
 All tests was conducted on a stationary computer running Ubuntu 18.04.5 LTS with the following hardware:
 - 32 GB of RAM (clocked at 1333Mhz)
