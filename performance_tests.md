@@ -23,5 +23,23 @@ All tests was conducted on a stationary computer running Ubuntu 18.04.5 LTS with
 
 The raw data for the results can be seen [here](https://github.com/statisticalbiotechnology/and/tree/master/raw_data). The tests showed a minor speed-up when implementing Quick-LOHify in CrossValidation::mergeCpCnPairs(...), as it was done by Oliver Serang et al. A 5.5 minute speed-up was achieved for what normally takes about 1 hour. In other words, Quick-LOHify could make Percolator up to 10% faster.
 
-Parallelizing std::sort also showed a small improvement in speed, but not large enough perhaps to justify changing the source code. The reason for why not a greater imrovement was seen is probably that some code already is running in parallel through OpenMP.
+Making sure std::sort was parallelized via __gnu_parallel also showed a small improvement in speed, but not large enough perhaps to justify changing the source code. The reason for why not a greater imrovement was seen is probably that some code already is running in parallel through OpenMP. The tables below show the recorded times in wall clock and CPU clock second format.
 
+
+| Wall clock  | Min  | Mean | Max|
+| :------------ |:---------------|:-----|:-----|
+| Original       | 3694 | 3712 |   3734    |
+| Original (__gnu_parallel)  | 3684  |    3698.2 |   3706    |
+| QLOH (mergeCpCnPairs)       | 3348        |   3382.5 |   3534    |
+| QLOH (mergeCpCnPairs & __gnu_parallel)       | 3349        |   3364.5 |   3375    |
+| QLOH (train & doStep)  | 4696  |    4712.8 |   4723    |
+
+<br/>
+
+| CPU clock  | Min  | Mean | Max|
+| :------------ |:---------------|:-----|:-----|
+| Original       | 9580 | 9623.8 |   9682    |
+| Original (__gnu_parallel)  | 9546.058  |    9589.076 |   9620.572    |
+| QLOH (mergeCpCnPairs)       | 8546        |   8641.3 |   9021    |
+| QLOH (mergeCpCnPairs & __gnu_parallel)       | 8584.805        |   8611.183 |   8640.103    |
+| QLOH (train & doStep)  | 12560.031  | 12614.118 |   12662.532    |
