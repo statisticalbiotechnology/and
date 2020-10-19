@@ -57,11 +57,11 @@ Whilst the vertical bars admittedly are a bit confusing due to having varying st
 
 
 
-| ![Original Percolator](./graphs/originalPercolator.png) ![Percolator with Quick-LOHify](./graphs/Quick_LOH_Percolator.png) |
+| <img src="./graphs/originalPercolator.png" alt="drawing" width="49%"/>  <img src="./graphs/Quick_LOH_Percolator.png" alt="drawing" width="49%"/>  |
 | :--: | 
 | *Original Percolator to the left and Quick-LOHify to the right.* |
 
 
-| ![Original Percolator](./graphs/originalPercolatorLine.png) ![Percolator with Quick-LOHify](./graphs/Quick_LOH_PercolatorLine.png) |
+| <img src="./graphs/originalPercolatorLine.png" alt="drawing" width="49%"/>  <img src="./graphs/Quick_LOH_PercolatorLine.png" alt="drawing" width="49%"/>  |
 | :--: | 
 | *Original Percolator to the left and Quick-LOHify to the right.* |
