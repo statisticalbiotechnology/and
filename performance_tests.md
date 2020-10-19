@@ -43,3 +43,25 @@ Making sure std::sort was parallelized via __gnu_parallel also showed a small im
 | QLOH (mergeCpCnPairs)       | 8546        |   8641.3 |   9021    |
 | QLOH (mergeCpCnPairs & __gnu_parallel)       | 8584.805        |   8611.183 |   8640.103    |
 | QLOH (train & doStep)  | 12560.031  | 12614.118 |   12662.532    |
+
+<br/>
+
+## Graphs
+
+In this section graphs are displayed that show how the run-times increase linearly with the input size. The horizontal line shows the input size in terms of millions of lines with PSMs. The vertical line shows the number of wall clock or CPU clock seconds.
+
+The graphs only show the minimum run-times achieved and could have other results for average or maximum run-times.
+
+Whilst the vertical bars admittedly are a bit confusing due to having varying step sizes, they indicate that the original version of Percolator is slower than when Quick-LOHify is implemented. When the input size gets larger, both algorithms run-time increase linearly and therefore Quick-LOHify will always be faster for any input.
+
+
+
+
+| ![Original Percolator](./graphs/originalPercolator.png) ![Percolator with Quick-LOHify](./graphs/Quick_LOH_Percolator.png) |
+| :--: | 
+| *Original Percolator to the left and Quick-LOHify to the right.* |
+
+
+| ![Original Percolator](./graphs/originalPercolatorLine.png) ![Percolator with Quick-LOHify](./graphs/Quick_LOH_PercolatorLine.png) |
+| :--: | 
+| *Original Percolator to the left and Quick-LOHify to the right.* |
