@@ -11,7 +11,7 @@ The following installations need to be made prior to manually building the sourc
 sudo apt-get install cmake
 sudo apt-get update
 sudo apt-get upgrade
-sudo apt-get update cmake
+sudo apt-get upgrade cmake
 sudo apt-get install g++
 sudo apt-get install libboost-all-dev
 sudo apt-get install xsdcxx
