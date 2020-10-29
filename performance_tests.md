@@ -52,16 +52,16 @@ In this section graphs are displayed that show how the run-times increase linear
 
 The graphs only show the minimum run-times achieved and could have other results for average or maximum run-times.
 
-Whilst the vertical bars admittedly are a bit confusing due to having varying step sizes, they indicate that the original version of Percolator is slower than when Quick-LOHify is implemented. When the input size gets larger, both algorithms run-time increase linearly and therefore Quick-LOHify will always be faster for any input.
+The vertical bars indicate that the original version of Percolator is slower than when Quick-LOHify is implemented. When the input size gets larger, both algorithms run-time increase similarly and therefore Quick-LOHify will always be faster for any input.
 
 
 
 
-| <img src="./graphs/originalPercolator.png" alt="drawing" width="49%"/>  <img src="./graphs/Quick_LOH_Percolator.png" alt="drawing" width="49%"/>  |
+| <img src="./graphs/outGraphCPUBar.png" alt="drawing" width="49%"/>  <img src="./graphs/outGraphWallBar.png" alt="drawing" width="49%"/>  |
 | :--: | 
-| *Original Percolator to the left and Quick-LOHify to the right.* |
+| *CPU clock time to the left and wall clock time to the right.* |
 
 
-| <img src="./graphs/originalPercolatorLine.png" alt="drawing" width="49%"/>  <img src="./graphs/Quick_LOH_PercolatorLine.png" alt="drawing" width="49%"/>  |
+| <img src="./graphs/outGraphCPULine.png" alt="drawing" width="49%"/>  <img src="./graphs/outGraphWallLine.png" alt="drawing" width="49%"/>  |
 | :--: | 
-| *Original Percolator to the left and Quick-LOHify to the right.* |
+| *CPU clock time to the left and wall clock time to the right.* |
