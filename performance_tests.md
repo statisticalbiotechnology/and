@@ -65,3 +65,9 @@ The vertical bars indicate that the original version of Percolator is slower tha
 | <img src="./graphs/outGraphCPULine.png" alt="drawing" width="49%"/>  <img src="./graphs/outGraphWallLine.png" alt="drawing" width="49%"/>  |
 | :--: | 
 | *CPU clock time to the left and wall clock time to the right.* |
+
+
+| <img src="./graphs/outGraphCPURelative.png" alt="drawing" width="49%"/>  <img src="./graphs/outGraphWallRelative.png" alt="drawing" width="49%"/>  |
+| :--: | 
+| *CPU clock time to the left and wall clock time to the right.* |
+
