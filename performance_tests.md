@@ -54,7 +54,7 @@ The graphs only show the minimum run-times achieved and could have other results
 
 The vertical bars indicate that the original version of Percolator is slower than when Quick-LOHify is implemented. When the input size gets larger, both algorithms run-time increase similarly and therefore Quick-LOHify will always be faster for any input.
 
-
+The number of threads here specify how many OpenMP threads that are set. In these tests the program may always use multiple threads for parts of the code that are not managed by OpenMP. Max threads means that OpenMP gets to decide itself, dynamically, how many threads that should be utilized. The optimal amount of threads is usually system-dependent.
 
 
 | <img src="./graphs/outGraphCPUBar.png" alt="drawing" width="49%"/>  <img src="./graphs/outGraphWallBar.png" alt="drawing" width="49%"/>  |
@@ -71,5 +71,22 @@ The vertical bars indicate that the original version of Percolator is slower tha
 | :--: | 
 | *CPU clock time to the left and wall clock time to the right.* |
 
+
+Percolator run with a single OpenMP thread is shown below.
+
+
+| <img src="./graphs/single_thread/outGraphCPUBar.png" alt="drawing" width="49%"/>  <img src="./graphs/single_thread/outGraphWallBar.png" alt="drawing" width="49%"/>  |
+| :--: | 
+| *CPU clock time to the left and wall clock time to the right.* |
+
+
+| <img src="./graphs/single_thread/outGraphCPULine.png" alt="drawing" width="49%"/>  <img src="./graphs/single_thread/outGraphWallLine.png" alt="drawing" width="49%"/>  |
+| :--: | 
+| *CPU clock time to the left and wall clock time to the right.* |
+
+
+| <img src="./graphs/single_thread/outGraphCPURelative.png" alt="drawing" width="49%"/>  <img src="./graphs/single_thread/outGraphWallRelative.png" alt="drawing" width="49%"/>  |
+| :--: | 
+| *CPU clock time to the left and wall clock time to the right.* |
 
 
