@@ -25,6 +25,8 @@ The raw data for the results can be seen [here](https://github.com/statisticalbi
 
 Making sure std::sort was parallelized via __gnu_parallel also showed a small improvement in speed, but not large enough perhaps to justify changing the source code. The reason for why not a greater imrovement was seen is probably that some code already is running in parallel through OpenMP. The tables below show the recorded times in wall clock and CPU clock second format.
 
+The functions mergeCpCnPairs and doStep are in the class named CrossValidation. When QLOH was applied in mergeCpCnPairs it wasn't used for calculating the variable "bestTruePos", but only the amount of true positives, "tp". One possible reason as to why QLOH makes Percolator slower when applied everywhere, instead in just having it in mergeCpCnPairs, might be because of how it was implemented in the code. In these tests a lot of allocations and de-allocations were done which probably aren't truly necessary. Specifically, QLOH creates a new array of pairs "score_label_pairs" and de-allocates it each time the function is called.
+
 
 | Wall clock  | Min  | Mean | Max|
 | :------------ |:---------------|:-----|:-----|
@@ -32,7 +34,7 @@ Making sure std::sort was parallelized via __gnu_parallel also showed a small im
 | Original (__gnu_parallel)  | 3684  |    3698.2 |   3706    |
 | QLOH (mergeCpCnPairs)       | 3348        |   3382.5 |   3534    |
 | QLOH (mergeCpCnPairs & __gnu_parallel)       | 3349        |   3364.5 |   3375    |
-| QLOH (train & doStep)  | 4696  |    4712.8 |   4723    |
+| QLOH (doStep)  | 4696  |    4712.8 |   4723    |
 
 <br/>
 
@@ -42,7 +44,7 @@ Making sure std::sort was parallelized via __gnu_parallel also showed a small im
 | Original (__gnu_parallel)  | 9546.058  |    9589.076 |   9620.572    |
 | QLOH (mergeCpCnPairs)       | 8546        |   8641.3 |   9021    |
 | QLOH (mergeCpCnPairs & __gnu_parallel)       | 8584.805        |   8611.183 |   8640.103    |
-| QLOH (train & doStep)  | 12560.031  | 12614.118 |   12662.532    |
+| QLOH (doStep)  | 12560.031  | 12614.118 |   12662.532    |
 
 <br/>
 
