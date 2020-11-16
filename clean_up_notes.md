@@ -12,7 +12,7 @@ Divide the code into smaller functions so that it becomes clear how much time di
 5. Write the result to file(s).
 
 
-#### Other improvements
+#### Other Improvements
 * Remove unused variables or functions.
 * Remove commented out code.
 * Remove semicolons placed wrongly, I.e. double semi-colons.
