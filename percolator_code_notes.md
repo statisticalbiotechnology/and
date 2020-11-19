@@ -23,4 +23,7 @@ There are some code snippets here and there which don't really belong to the fun
 Here are some things which normally might make a code base easier to understand for newcomers. It might not be trivial to implement these ideas in Percolator.
 
 ### UML Diagram
-UML diagrams allows one to plan ahead and also map how existing classes depend on one another to function correctly. Having a UML map makes it easier to see which classes are coupled and thereby helps making the code as a whole more modular. Modularity is a corner-stone in programming best practices. If the code is modular, it becomes trivial to add, remove or edit functions, since these would be indepentent towards the rest of the program. If the UML diagram is hard to interpret it usually means that the code is poorly structured.
+UML diagrams allows one to plan ahead and also map how existing classes depend on one another to function correctly. Having a UML map makes it easier to see which classes are coupled and thereby helps making the code as a whole more modular. Modularity is a cornerstone in programming best practices. If the code is modular, it becomes trivial to add, remove or edit functions, since these would be indepentent towards the rest of the program. If the UML diagram is hard to interpret it usually means that the code is poorly structured.
+
+### Separation of Calculations and I/O
+Reading and outputting text occur everywhere as it is now. It would make it easier to maintin the code if most of the output was limited to a specific individual function, and the process of reading data from files were limited as well to its own place.
