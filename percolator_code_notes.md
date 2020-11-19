@@ -38,7 +38,7 @@ Some structs or functions were overly complicated. In some parts of the code dyn
 
 One should try to avoid passing boolean variables as function parameters. Instead of passing a boolean it's usually better to simply create two different functions.
 
-It's unclear what the purpose of the *Crux*-macro is in Caller.cpp. Generally, there might be too many macro-definitions in the source code.
+It's unclear what the purpose of the *CRUX*-macro is in Caller.cpp. Generally, there might be too many macro-definitions in the source code.
 
 #### Too Many Flags?
 
