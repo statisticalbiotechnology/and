@@ -17,3 +17,10 @@ There are a lot of different optional use-flags to choose from. I don't know wha
 
 ## Bloat
 There are some code snippets here and there which don't really belong to the functions they are in, or at the very least could be moved into their own class-objects. For instance, one may specify a flag called *VERBOSE*. It specifies how much output information that should be printed out to the screen. It's also possible to set this flag to a "maximum level" which makes the program output huge amounts of text. I don't know any type of person who would want this kind of output and don't really think anyone is interested in reading that much text from a program. Especially if most of the text is not very interesting. Regardless, this has led to a lot of if-statements in all areas of the code which checks against the VERBOSE flag and then output debug-information if it has a high enough level. This makes the actual functionality harder to read as there is bloat coming from intermixed VERBOSE if-statements. The same problem goes for other optional use-flags. There are a lot of optional flags with randomly distributed if-statements blasted into the source code, which makes the code itself harder to maintain. It's unclear if these if-statements are warranted and really have to take up space in the source code.
+
+## Things That Would Help
+
+Here are some things which normally might make a code base easier to understand for newcomers. It might not be trivial to implement these ideas in Percolator.
+
+### UML Diagram
+UML diagrams allows one to plan ahead and also map how existing classes depend on one another to function correctly. Having a UML map makes it easier to see which classes are coupled and thereby helps making the code as a whole more modular. Modularity is a corner-stone in programming best practices. If the code is modular, it becomes trivial to add, remove or edit functions, since these would be indepentent towards the rest of the program. If the UML diagram is hard to interpret it usually means that the code is poorly structured.
