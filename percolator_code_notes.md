@@ -50,7 +50,7 @@ There are some code snippets here and there which don't really belong to the fun
 ### CMake Constants
 Some C++ files are marked with ".cmake" extensions, and are used by CMake scripts to define constants. This makes the code coupled directly to CMake, even though that is not necessary. This could be fixed by having CMake defining constants in plain non-C++ text-files, and having the program reading in those text-files instead.
 
-## Things That were Hard to Understand
+## Things That Were Hard to Understand
 
 A lot of things are still unclear regarding the code base. Here are some general things to note that make (or made) Percolator hard to understand.
 
