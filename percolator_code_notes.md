@@ -27,3 +27,7 @@ UML diagrams allows one to plan ahead and also map how existing classes depend o
 
 ### Separation of Calculations and I/O
 Reading and outputting text occur everywhere as it is now. It would make it easier to maintin the code if most of the output was limited to a specific individual function, and the process of reading data from files were limited as well to its own place.
+
+### Unit Tests
+
+Whilst I'm aware that this is being considered in future updates, there are currently pretty much non-existent unit testing in place. Due to there being no unit tests, one does not dare to make modifications to the code. It is extremely easy to create bugs when programming. Unit tests makes it possible to check, for the most part, that modifications do not cause the code to malfunction. It would be very helpful if there were unit tests in place that checked that the output is correct. Thereby, if something is changed one can still know that the program works.
