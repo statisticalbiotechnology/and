@@ -38,6 +38,8 @@ Some structs or functions were overly complicated. In some parts of the code dyn
 
 One should try to avoid passing boolean variables as function parameters. Instead of passing a boolean it's usually better to simply create two different functions.
 
+It's unclear what the purpose of the *Crux*-macro is in Caller.cpp. Generally, there might be too many macro-definitions in the source code.
+
 #### Too Many Flags?
 
 There are a lot of different optional use-flags to choose from. I don't know what the purpose is for most of them. Perhaps these flags are obviously clear for people that know more about biology. For anyone else though, it might be warranted to have fewer optional flags. If you have too many options the code gets more complicated to use.
