@@ -11,7 +11,7 @@ Divide the code into smaller functions so that it becomes clear how much time di
 (Already done via `crossValidation.train(pNorm_);`)
 4. ~~Do a cross-validation. Use 3 SVMs, one for each cross-validation bin. Merge all PSMs into one report.~~ \
 (Already done via `crossValidation.postIterationProcessing(allScores, pCheck_);`)
-1. Write the result to file(s).
+1. Write the result to file(s). The result contains information about PSMs, peptides and proteins, in that order.
 
 
 #### Other Improvements
