@@ -11,11 +11,11 @@ Here are some things which normally might make a code base easier to understand 
 UML diagrams allows one to plan ahead and also map how existing classes depend on one another to function correctly. Having a UML map makes it easier to see which classes are coupled and thereby helps making the code as a whole more modular. Modularity is a cornerstone in programming best practices. If the code is modular, it becomes trivial to add, remove or edit functions, since these would be indepentent towards the rest of the program. If the UML diagram is hard to interpret it usually means that the code is poorly structured.
 
 ### Separation of Calculations and I/O
-Reading and outputting text occur everywhere as it is now. It would make it easier to maintin the code if most of the output was limited to a specific individual function, and the process of reading data from files were limited as well to its own place.
+Reading and outputting text occur everywhere as it's now. It would make it easier to maintin the code if most of the output was limited to a specific individual function, and the process of reading data from files were limited as well to its own place.
 
 ### Unit Tests
 
-Whilst I'm aware that this is being considered in future updates, there are currently pretty much non-existent unit testing in place. Due to there being no unit tests, one does not dare to make modifications to the code. It is extremely easy to create bugs when programming. Unit tests makes it possible to check, for the most part, that modifications do not cause the code to malfunction. It would be very helpful if there were unit tests in place that checked that the output is correct. Thereby, if something is changed one can still know that the program works.
+Whilst I'm aware that this is being considered in future updates, there are currently pretty much non-existent unit testing in place. Due to there being no unit tests, one does not dare to make modifications to the code. It's extremely easy to create bugs when programming. Unit tests makes it possible to check, for the most part, that modifications do not cause the code to malfunction. It would be very helpful if there were unit tests in place that checked that the output is correct. Thereby, if something is changed one can still know that the program works.
 
 ### Documentation
 There is already some documentation available through the wiki-page. However, there could be more documentation. The wiki was lastly updated 3 years ago, and might be out-dated.
@@ -35,6 +35,8 @@ This allows one to change how the software acts. Currently, all optional flags a
 
 ### Design
 Some structs or functions were overly complicated. In some parts of the code dynamic memory was used when not needed. Also, it would make the code better if memory was freed in class destructors instead of manually in the code.
+
+One should try to avoid passing boolean variables as function parameters. Instead of passing a boolean it's usually better to simply create two different functions.
 
 #### Too Many Flags?
 
