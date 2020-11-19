@@ -56,3 +56,5 @@ Some C++ files are marked with ".cmake" extensions, and are used by CMake script
 A lot of things are still unclear regarding the code base. Here are some general things to note that make (or made) Percolator hard to understand.
 
 There is an extensive use of jargon from (presumably) the field statistical biology. If one is not familiar with words related to that area it becomes harder to know what certain parts of the code does.
+
+There is a lack of clear direction when reading the code. It is not easy to distinguish separate stages. Different stages could be reading input-data, doing computations and printing the results.
