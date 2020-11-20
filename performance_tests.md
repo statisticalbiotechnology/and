@@ -91,4 +91,23 @@ Percolator run with a single OpenMP thread is shown below.
 | :--: | 
 | *CPU clock time to the left and wall clock time to the right.* |
 
+### Large Input Data
 
+It was of interest to see how much QLOH possibly could affect Percolator. QLOH was intended to be used in the function *CrossValidation::mergeCpCnPairs*. Therefore, a profiling tool called Perf was used with Percolator with different input data sizes to find out how much this time mergeCpCnPairs took up in the program relative to the other parts. Below are some FlameGraphs that estimate how much time the function took up in percentage. The profiling was done via statistical sampling, with sampling rates between 90-99 samples per second. To make the FlameGraphs more clear, the flag --num-threads was set to 1, meaning that only 1 thread should be used by the software. In the test using the Wilhelm et. al dataset, the sampling rate was reduced to 90 samples per second. For the other tests the sampling rate were between 97-99 samples per second.
+
+The tests with large input data (100 million or more PSMs) were made on a cluster (https://www.hpc2n.umu.se/) due to the program requiring a lot of RAM. These graphs generally looks abnormal, however the function of interest, mergeCpCnPairs, is still visible.
+
+| <img src="./graphs/largeInputData/perf-kernel-25M.svg" width="98%"/> |
+| :--: |
+| Test with 25 million PSMs. |
+
+| <img src="./graphs/largeInputData/perf-kernel-100M.svg" width="98%"/> |
+| :--: |
+| Test with 100 million PSMs. |
+
+| <img src="./graphs/largeInputData/perf-kernel-wilhelm215M.svg" width="98%"/> |
+| :--: |
+| Test with a little more than 215 million PSMs. (Wilhelm et. al dataset) |
+
+
+What can be concluded from the tests is that the time spent in mergeCpCnPairs shrink as the input size increases. Thus, even if you reduce the runtime of that function to 0 %, the total runtime for the program would not be reduced more than approximately 20 %.

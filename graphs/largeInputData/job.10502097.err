@@ -1,0 +1,176 @@
+Percolator version 3.05.nightly-33-eeae956, Build Date Nov 11 2020 09:49:01
+Copyright (c) 2006-9 University of Washington. All rights reserved.
+Written by Lukas Käll (lukall@u.washington.edu) in the
+Department of Genome Sciences at the University of Washington.
+Issued command:
+/proj/nobackup/snic2020-10-74/percolator_build/src/percolator -X pout.xml --num-threads 1 /proj/nobackup/snic2020-10-74/indata100M.pin
+Started Tue Nov 17 09:50:52 2020
+ on b-cn0101
+Hyperparameters: selectionFdr=0.01, Cpos=0, Cneg=0, maxNiter=10
+Reading tab-delimited input from datafile /proj/nobackup/snic2020-10-74/indata100M.pin
+Features:
+deltLCn deltCn RefactoredXCorr NegLog10PValue NegLog10ResEvPValue NegLog10CombinePValue PepLen Charge1 Charge2 Charge3 Charge4 Charge5 enzN enzC enzInt lnNumDSP dM absdM 
+Reading line 1000000
+Reading line 2000000
+Reading line 3000000
+Reading line 4000000
+Reading line 5000000
+Reading line 6000000
+Reading line 7000000
+Reading line 8000000
+Reading line 9000000
+Reading line 10000000
+Reading line 11000000
+Reading line 12000000
+Reading line 13000000
+Reading line 14000000
+Reading line 15000000
+Reading line 16000000
+Reading line 17000000
+Reading line 18000000
+Reading line 19000000
+Reading line 20000000
+Reading line 21000000
+Reading line 22000000
+Reading line 23000000
+Reading line 24000000
+Reading line 25000000
+Reading line 26000000
+Reading line 27000000
+Reading line 28000000
+Reading line 29000000
+Reading line 30000000
+Reading line 31000000
+Reading line 32000000
+Reading line 33000000
+Reading line 34000000
+Reading line 35000000
+Reading line 36000000
+Reading line 37000000
+Reading line 38000000
+Reading line 39000000
+Reading line 40000000
+Reading line 41000000
+Reading line 42000000
+Reading line 43000000
+Reading line 44000000
+Reading line 45000000
+Reading line 46000000
+Reading line 47000000
+Reading line 48000000
+Reading line 49000000
+Reading line 50000000
+Reading line 51000000
+Reading line 52000000
+Reading line 53000000
+Reading line 54000000
+Reading line 55000000
+Reading line 56000000
+Reading line 57000000
+Reading line 58000000
+Reading line 59000000
+Reading line 60000000
+Reading line 61000000
+Reading line 62000000
+Reading line 63000000
+Reading line 64000000
+Reading line 65000000
+Reading line 66000000
+Reading line 67000000
+Reading line 68000000
+Reading line 69000000
+Reading line 70000000
+Reading line 71000000
+Reading line 72000000
+Reading line 73000000
+Reading line 74000000
+Reading line 75000000
+Reading line 76000000
+Reading line 77000000
+Reading line 78000000
+Reading line 79000000
+Reading line 80000000
+Reading line 81000000
+Reading line 82000000
+Reading line 83000000
+Reading line 84000000
+Reading line 85000000
+Reading line 86000000
+Reading line 87000000
+Reading line 88000000
+Reading line 89000000
+Reading line 90000000
+Reading line 91000000
+Reading line 92000000
+Reading line 93000000
+Reading line 94000000
+Reading line 95000000
+Reading line 96000000
+Reading line 97000000
+Reading line 98000000
+Reading line 99000000
+Reading line 100000000
+Found 99999999 PSMs
+Separate target and decoy search inputs detected, using mix-max method.
+Train/test set contains 64484097 positives and 35515902 negatives, size ratio=1.81564 and pi0=1
+Warning: The mix-max procedure is not well behaved when # targets (64484097) != # decoys (35515902). Consider using target-decoy competition (-Y flag).
+Selecting Cpos by cross-validation.
+Selecting Cneg by cross-validation.
+Split 1:	Selected feature 4 as initial direction. Could separate 15296517 training set positives with q<0.01 in that direction.
+Split 2:	Selected feature 4 as initial direction. Could separate 15435124 training set positives with q<0.01 in that direction.
+Split 3:	Selected feature 4 as initial direction. Could separate 15428352 training set positives with q<0.01 in that direction.
+Found 23079918 test set positives with q<0.01 in initial direction
+Reading in data and feature calculation took 5365.28 cpu seconds or 5376 seconds wall clock time.
+---Training with Cpos selected by cross validation, Cneg selected by cross validation, initial_fdr=0.01, fdr=0.01
+Iteration 1:	Estimated 26023050 PSMs with q<0.01
+Iteration 2:	Estimated 26804970 PSMs with q<0.01
+Iteration 3:	Estimated 27008447 PSMs with q<0.01
+Iteration 4:	Estimated 27062471 PSMs with q<0.01
+Iteration 5:	Estimated 27082399 PSMs with q<0.01
+Iteration 6:	Estimated 27090864 PSMs with q<0.01
+Iteration 7:	Estimated 27093965 PSMs with q<0.01
+Iteration 8:	Estimated 27094396 PSMs with q<0.01
+Iteration 9:	Estimated 27094020 PSMs with q<0.01
+Iteration 10:	Estimated 27093604 PSMs with q<0.01
+Learned normalized SVM weights for the 3 cross-validation splits:
+ Split1	 Split2	 Split3	FeatureName
+ 0.0000	 0.0000	 0.0000	deltLCn
+ 0.6852	 0.6827	 0.6848	deltCn
+ 0.3365	 0.3284	 0.3323	RefactoredXCorr
+-5.4243	-5.6119	-5.2949	NegLog10PValue
+-7.4266	-7.6265	-7.2773	NegLog10ResEvPValue
+ 14.6753	 15.0320	 14.4234	NegLog10CombinePValue
+-0.1118	-0.1093	-0.1101	PepLen
+-0.0303	-0.0326	-0.0321	Charge1
+ 0.0276	 0.0253	 0.0288	Charge2
+ 0.1225	 0.1224	 0.1240	Charge3
+ 0.0944	 0.0972	 0.0957	Charge4
+ 0.0289	 0.0307	 0.0280	Charge5
+ 0.1760	 0.1757	 0.1763	enzN
+-0.1683	-0.1691	-0.1695	enzC
+-0.4834	-0.4841	-0.4850	enzInt
+-0.1281	-0.1295	-0.1293	lnNumDSP
+ 0.5926	 0.6238	 0.6183	dM
+-3.5117	-3.5022	-3.4953	absdM
+-2.6319	-2.6154	-2.6173	m0
+Found 27094194 test set PSMs with q<0.01.
+Tossing out "redundant" PSMs keeping only the best scoring PSM for each unique peptide.
+Selecting pi_0=0.903658
+Calculating q values.
+New pi_0 estimate on final list yields 440274 target peptides with q<0.01.
+Calculating posterior error probabilities (PEPs).
+Processing took 51554.3727 cpu seconds or 55331.0000 seconds wall clock time.
+[ perf record: Woken up 731 times to write data ]
+[kernel.kallsyms] with build id 74d2bf44d1728591b6ba842c217ae465099daf6e not found, continuing without symbols
+Warning:
+Processed 5787421 events and lost 25 chunks!
+
+Check IO/CPU overload!
+
+[ perf record: Captured and wrote 11893.360 MB testfile.test (5414583 samples) ]
+[kernel.kallsyms] with build id 74d2bf44d1728591b6ba842c217ae465099daf6e not found, continuing without symbols
+Warning:
+Processed 5787421 events and lost 25 chunks!
+
+Check IO/CPU overload!
+

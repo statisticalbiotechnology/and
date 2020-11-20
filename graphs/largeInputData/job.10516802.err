@@ -1,0 +1,281 @@
+Percolator version 3.05.nightly-33-eeae956, Build Date Nov 11 2020 09:49:01
+Copyright (c) 2006-9 University of Washington. All rights reserved.
+Written by Lukas Käll (lukall@u.washington.edu) in the
+Department of Genome Sciences at the University of Washington.
+Issued command:
+/proj/nobackup/snic2020-10-33/perf_tests/percolator_build/src/percolator -X pout.xml --num-threads 1 /proj/nobackup/snic2020-10-33/perf_tests/wilhelm.pin
+Started Wed Nov 18 15:38:52 2020
+ on b-cn0949
+Hyperparameters: selectionFdr=0.01, Cpos=0, Cneg=0, maxNiter=10
+Reading tab-delimited input from datafile /proj/nobackup/snic2020-10-33/perf_tests/wilhelm.pin
+Features:
+deltLCn deltCn RefactoredXCorr NegLog10PValue NegLog10ResEvPValue NegLog10CombinePValue PepLen Charge1 Charge2 Charge3 Charge4 Charge5 enzN enzC enzInt lnNumDSP dM absdM 
+Reading line 1000000
+Reading line 2000000
+Reading line 3000000
+Reading line 4000000
+Reading line 5000000
+Reading line 6000000
+Reading line 7000000
+Reading line 8000000
+Reading line 9000000
+Reading line 10000000
+Reading line 11000000
+Reading line 12000000
+Reading line 13000000
+Reading line 14000000
+Reading line 15000000
+Reading line 16000000
+Reading line 17000000
+Reading line 18000000
+Reading line 19000000
+Reading line 20000000
+Reading line 21000000
+Reading line 22000000
+Reading line 23000000
+Reading line 24000000
+Reading line 25000000
+Reading line 26000000
+Reading line 27000000
+Reading line 28000000
+Reading line 29000000
+Reading line 30000000
+Reading line 31000000
+Reading line 32000000
+Reading line 33000000
+Reading line 34000000
+Reading line 35000000
+Reading line 36000000
+Reading line 37000000
+Reading line 38000000
+Reading line 39000000
+Reading line 40000000
+Reading line 41000000
+Reading line 42000000
+Reading line 43000000
+Reading line 44000000
+Reading line 45000000
+Reading line 46000000
+Reading line 47000000
+Reading line 48000000
+Reading line 49000000
+Reading line 50000000
+Reading line 51000000
+Reading line 52000000
+Reading line 53000000
+Reading line 54000000
+Reading line 55000000
+Reading line 56000000
+Reading line 57000000
+Reading line 58000000
+Reading line 59000000
+Reading line 60000000
+Reading line 61000000
+Reading line 62000000
+Reading line 63000000
+Reading line 64000000
+Reading line 65000000
+Reading line 66000000
+Reading line 67000000
+Reading line 68000000
+Reading line 69000000
+Reading line 70000000
+Reading line 71000000
+Reading line 72000000
+Reading line 73000000
+Reading line 74000000
+Reading line 75000000
+Reading line 76000000
+Reading line 77000000
+Reading line 78000000
+Reading line 79000000
+Reading line 80000000
+Reading line 81000000
+Reading line 82000000
+Reading line 83000000
+Reading line 84000000
+Reading line 85000000
+Reading line 86000000
+Reading line 87000000
+Reading line 88000000
+Reading line 89000000
+Reading line 90000000
+Reading line 91000000
+Reading line 92000000
+Reading line 93000000
+Reading line 94000000
+Reading line 95000000
+Reading line 96000000
+Reading line 97000000
+Reading line 98000000
+Reading line 99000000
+Reading line 100000000
+Reading line 101000000
+Reading line 102000000
+Reading line 103000000
+Reading line 104000000
+Reading line 105000000
+Reading line 106000000
+Reading line 107000000
+Reading line 108000000
+Reading line 109000000
+Reading line 110000000
+Reading line 111000000
+Reading line 112000000
+Reading line 113000000
+Reading line 114000000
+Reading line 115000000
+Reading line 116000000
+Reading line 117000000
+Reading line 118000000
+Reading line 119000000
+Reading line 120000000
+Reading line 121000000
+Reading line 122000000
+Reading line 123000000
+Reading line 124000000
+Reading line 125000000
+Reading line 126000000
+Reading line 127000000
+Reading line 128000000
+Reading line 129000000
+Reading line 130000000
+Reading line 131000000
+Reading line 132000000
+Reading line 133000000
+Reading line 134000000
+Reading line 135000000
+Reading line 136000000
+Reading line 137000000
+Reading line 138000000
+Reading line 139000000
+Reading line 140000000
+Reading line 141000000
+Reading line 142000000
+Reading line 143000000
+Reading line 144000000
+Reading line 145000000
+Reading line 146000000
+Reading line 147000000
+Reading line 148000000
+Reading line 149000000
+Reading line 150000000
+Reading line 151000000
+Reading line 152000000
+Reading line 153000000
+Reading line 154000000
+Reading line 155000000
+Reading line 156000000
+Reading line 157000000
+Reading line 158000000
+Reading line 159000000
+Reading line 160000000
+Reading line 161000000
+Reading line 162000000
+Reading line 163000000
+Reading line 164000000
+Reading line 165000000
+Reading line 166000000
+Reading line 167000000
+Reading line 168000000
+Reading line 169000000
+Reading line 170000000
+Reading line 171000000
+Reading line 172000000
+Reading line 173000000
+Reading line 174000000
+Reading line 175000000
+Reading line 176000000
+Reading line 177000000
+Reading line 178000000
+Reading line 179000000
+Reading line 180000000
+Reading line 181000000
+Reading line 182000000
+Reading line 183000000
+Reading line 184000000
+Reading line 185000000
+Reading line 186000000
+Reading line 187000000
+Reading line 188000000
+Reading line 189000000
+Reading line 190000000
+Reading line 191000000
+Reading line 192000000
+Reading line 193000000
+Reading line 194000000
+Reading line 195000000
+Reading line 196000000
+Reading line 197000000
+Reading line 198000000
+Reading line 199000000
+Reading line 200000000
+Reading line 201000000
+Reading line 202000000
+Reading line 203000000
+Reading line 204000000
+Reading line 205000000
+Reading line 206000000
+Reading line 207000000
+Reading line 208000000
+Reading line 209000000
+Reading line 210000000
+Reading line 211000000
+Reading line 212000000
+Reading line 213000000
+Reading line 214000000
+Reading line 215000000
+Found 215282771 PSMs
+Separate target and decoy search inputs detected, using mix-max method.
+Train/test set contains 137136136 positives and 78146635 negatives, size ratio=1.75486 and pi0=1
+Warning: The mix-max procedure is not well behaved when # targets (137136136) != # decoys (78146635). Consider using target-decoy competition (-Y flag).
+Selecting Cpos by cross-validation.
+Selecting Cneg by cross-validation.
+Split 1:	Selected feature 4 as initial direction. Could separate 31916448 training set positives with q<0.01 in that direction.
+Split 2:	Selected feature 4 as initial direction. Could separate 32179864 training set positives with q<0.01 in that direction.
+Split 3:	Selected feature 4 as initial direction. Could separate 32170030 training set positives with q<0.01 in that direction.
+Found 48132980 test set positives with q<0.01 in initial direction
+Reading in data and feature calculation took 11945 cpu seconds or 11957 seconds wall clock time.
+---Training with Cpos selected by cross validation, Cneg selected by cross validation, initial_fdr=0.01, fdr=0.01
+Iteration 1:	Estimated 52759551 PSMs with q<0.01
+Iteration 2:	Estimated 54026933 PSMs with q<0.01
+Iteration 3:	Estimated 54591561 PSMs with q<0.01
+Iteration 4:	Estimated 54915707 PSMs with q<0.01
+Iteration 5:	Estimated 55067362 PSMs with q<0.01
+Iteration 6:	Estimated 55131351 PSMs with q<0.01
+Iteration 7:	Estimated 55158181 PSMs with q<0.01
+Iteration 8:	Estimated 55169828 PSMs with q<0.01
+Iteration 9:	Estimated 55174452 PSMs with q<0.01
+Iteration 10:	Estimated 55176212 PSMs with q<0.01
+Learned normalized SVM weights for the 3 cross-validation splits:
+ Split1	 Split2	 Split3	FeatureName
+ 0.0000	 0.0000	 0.0000	deltLCn
+ 0.6649	 0.6641	 0.6638	deltCn
+ 0.3847	 0.3830	 0.3817	RefactoredXCorr
+-10.2778	-10.3742	-10.5614	NegLog10PValue
+-12.4307	-12.5198	-12.7242	NegLog10ResEvPValue
+ 23.6364	 23.8057	 24.1660	NegLog10CombinePValue
+-0.1913	-0.1871	-0.1864	PepLen
+-0.0160	-0.0164	-0.0175	Charge1
+ 0.0685	 0.0688	 0.0687	Charge2
+ 0.1596	 0.1610	 0.1612	Charge3
+ 0.1731	 0.1742	 0.1751	Charge4
+ 0.0358	 0.0392	 0.0389	Charge5
+ 0.1536	 0.1549	 0.1555	enzN
+-0.1215	-0.1211	-0.1230	enzC
+-0.4732	-0.4739	-0.4757	enzInt
+-0.1329	-0.1343	-0.1343	lnNumDSP
+ 0.7570	 0.7749	 0.7608	dM
+-4.7005	-4.6907	-4.6912	absdM
+-2.9300	-2.9175	-2.9129	m0
+Found 55176509 test set PSMs with q<0.01.
+Tossing out "redundant" PSMs keeping only the best scoring PSM for each unique peptide.
+Selecting pi_0=0.905041
+Calculating q values.
+New pi_0 estimate on final list yields 541852 target peptides with q<0.01.
+Calculating posterior error probabilities (PEPs).
+Processing took 120952.5339 cpu seconds or 121011.0000 seconds wall clock time.
+[ perf record: Woken up 1600 times to write data ]
+[kernel.kallsyms] with build id 74d2bf44d1728591b6ba842c217ae465099daf6e not found, continuing without symbols
+[ perf record: Captured and wrote 25690.698 MB testfile.test (11697954 samples) ]
+[kernel.kallsyms] with build id 74d2bf44d1728591b6ba842c217ae465099daf6e not found, continuing without symbols

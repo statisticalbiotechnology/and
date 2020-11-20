@@ -1,0 +1,3240 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="582" onload="init(evt)" viewBox="0 0 1200 582" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs>
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search, #ignorecase { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show, #ignorecase:hover, #ignorecase.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching, currentSearchTerm, ignorecase, ignorecaseBtn;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		ignorecaseBtn = document.getElementById("ignorecase");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+		currentSearchTerm = null;
+	}
+
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom();
+			zoom(target);
+		}
+		else if (e.target.id == "unzoom") unzoom();
+		else if (e.target.id == "search") search_prompt();
+		else if (e.target.id == "ignorecase") toggle_ignorecase();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+	}, false)
+
+	// ctrl-I to toggle case-sensitive search
+	window.addEventListener("keydown",function (e) {
+		if (e.ctrlKey && e.keyCode === 73) {
+			e.preventDefault();
+			toggle_ignorecase();
+		}
+	}, false)
+
+	// functions
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+		return;
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		// Fit in full text width
+		if (/^ *$/.test(txt) || t.getSubStringLength(0, txt.length) < w)
+			return;
+
+		for (var x = txt.length - 2; x > 0; x--) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+		search();
+	}
+	function unzoom() {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			update_text(el[i]);
+		}
+		search();
+	}
+
+	// search
+	function toggle_ignorecase() {
+		ignorecase = !ignorecase;
+		if (ignorecase) {
+			ignorecaseBtn.classList.add("show");
+		} else {
+			ignorecaseBtn.classList.remove("show");
+		}
+		reset_search();
+		search();
+	}
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)"
+			    + (ignorecase ? ", ignoring case" : "")
+			    + "\nPress Ctrl-i to toggle case sensitivity", "");
+			if (term != null) {
+				currentSearchTerm = term;
+				search();
+			}
+		} else {
+			reset_search();
+			searching = 0;
+			currentSearchTerm = null;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		if (currentSearchTerm === null) return;
+		var term = currentSearchTerm;
+
+		var re = new RegExp(term, ignorecase ? 'i' : '');
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="582.0" fill="url(#background)"  />
+<text id="title" x="600.00" y="24" >Flame Graph</text>
+<text id="details" x="10.00" y="565" > </text>
+<text id="unzoom" x="10.00" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="1090.00" y="24" >Search</text>
+<text id="ignorecase" x="1174.00" y="24" >ic</text>
+<text id="matched" x="1090.00" y="565" > </text>
+<g id="frames">
+<g >
+<title>do_syscall_64 (228 samples, 0.04%)</title><rect x="1119.0" y="341" width="0.5" height="15.0" fill="rgb(223,137,0)" rx="2" ry="2" />
+<text  x="1122.05" y="351.5" ></text>
+</g>
+<g >
+<title>balance_dirty_pages_ratelimited (60 samples, 0.01%)</title><rect x="1180.4" y="165" width="0.1" height="15.0" fill="rgb(226,86,47)" rx="2" ry="2" />
+<text  x="1183.42" y="175.5" ></text>
+</g>
+<g >
+<title>std::__ostream_insert&lt;char, std::char_traits&lt;char&gt; &gt; (62 samples, 0.01%)</title><rect x="29.4" y="389" width="0.1" height="15.0" fill="rgb(236,110,3)" rx="2" ry="2" />
+<text  x="32.40" y="399.5" ></text>
+</g>
+<g >
+<title>pagecache_get_page (533 samples, 0.09%)</title><rect x="1158.8" y="133" width="1.1" height="15.0" fill="rgb(207,168,35)" rx="2" ry="2" />
+<text  x="1161.82" y="143.5" ></text>
+</g>
+<g >
+<title>CGLS (1,036 samples, 0.17%)</title><rect x="15.2" y="485" width="2.0" height="15.0" fill="rgb(233,199,20)" rx="2" ry="2" />
+<text  x="18.22" y="495.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (83 samples, 0.01%)</title><rect x="1125.8" y="373" width="0.1" height="15.0" fill="rgb(252,225,10)" rx="2" ry="2" />
+<text  x="1128.75" y="383.5" ></text>
+</g>
+<g >
+<title>__mpn_mul_1 (63 samples, 0.01%)</title><rect x="1174.8" y="293" width="0.1" height="15.0" fill="rgb(233,105,27)" rx="2" ry="2" />
+<text  x="1177.82" y="303.5" ></text>
+</g>
+<g >
+<title>_IO_new_file_sync (551 samples, 0.09%)</title><rect x="30.4" y="373" width="1.1" height="15.0" fill="rgb(211,65,12)" rx="2" ry="2" />
+<text  x="33.44" y="383.5" ></text>
+</g>
+<g >
+<title>do_page_fault (4,476 samples, 0.74%)</title><rect x="475.7" y="293" width="8.7" height="15.0" fill="rgb(237,31,47)" rx="2" ry="2" />
+<text  x="478.73" y="303.5" ></text>
+</g>
+<g >
+<title>std::__basic_file&lt;char&gt;::xsgetn (142 samples, 0.02%)</title><rect x="1137.7" y="357" width="0.3" height="15.0" fill="rgb(240,122,9)" rx="2" ry="2" />
+<text  x="1140.69" y="367.5" ></text>
+</g>
+<g >
+<title>_IO_vsnprintf (236 samples, 0.04%)</title><rect x="29.6" y="341" width="0.5" height="15.0" fill="rgb(250,163,49)" rx="2" ry="2" />
+<text  x="32.60" y="351.5" ></text>
+</g>
+<g >
+<title>__mpn_divrem (94 samples, 0.02%)</title><rect x="1174.6" y="293" width="0.2" height="15.0" fill="rgb(232,167,8)" rx="2" ry="2" />
+<text  x="1177.64" y="303.5" ></text>
+</g>
+<g >
+<title>std::ostream::flush (6,876 samples, 1.13%)</title><rect x="1175.2" y="405" width="13.4" height="15.0" fill="rgb(220,200,24)" rx="2" ry="2" />
+<text  x="1178.23" y="415.5" ></text>
+</g>
+<g >
+<title>__do_page_fault (284 samples, 0.05%)</title><rect x="1024.8" y="293" width="0.6" height="15.0" fill="rgb(208,71,33)" rx="2" ry="2" />
+<text  x="1027.80" y="303.5" ></text>
+</g>
+<g >
+<title>page_fault (291 samples, 0.05%)</title><rect x="1024.8" y="325" width="0.6" height="15.0" fill="rgb(210,192,28)" rx="2" ry="2" />
+<text  x="1027.79" y="335.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (1,147 samples, 0.19%)</title><rect x="38.8" y="293" width="2.3" height="15.0" fill="rgb(251,43,40)" rx="2" ry="2" />
+<text  x="41.84" y="303.5" ></text>
+</g>
+<g >
+<title>SetHandler::readAndScoreTab (5,367 samples, 0.88%)</title><rect x="1127.6" y="421" width="10.4" height="15.0" fill="rgb(222,62,14)" rx="2" ry="2" />
+<text  x="1130.56" y="431.5" ></text>
+</g>
+<g >
+<title>Scores::postMergeStep (319 samples, 0.05%)</title><rect x="1126.1" y="437" width="0.6" height="15.0" fill="rgb(205,15,19)" rx="2" ry="2" />
+<text  x="1129.12" y="447.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (105 samples, 0.02%)</title><rect x="1126.5" y="357" width="0.2" height="15.0" fill="rgb(243,175,40)" rx="2" ry="2" />
+<text  x="1129.54" y="367.5" ></text>
+</g>
+<g >
+<title>__fget_light (58 samples, 0.01%)</title><rect x="1179.1" y="245" width="0.1" height="15.0" fill="rgb(218,73,35)" rx="2" ry="2" />
+<text  x="1182.10" y="255.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (64 samples, 0.01%)</title><rect x="315.1" y="53" width="0.1" height="15.0" fill="rgb(242,106,45)" rx="2" ry="2" />
+<text  x="318.06" y="63.5" ></text>
+</g>
+<g >
+<title>kmem_cache_free (77 samples, 0.01%)</title><rect x="1183.6" y="117" width="0.1" height="15.0" fill="rgb(250,34,4)" rx="2" ry="2" />
+<text  x="1186.57" y="127.5" ></text>
+</g>
+<g >
+<title>round_and_return (454 samples, 0.07%)</title><rect x="1134.1" y="341" width="0.9" height="15.0" fill="rgb(210,173,11)" rx="2" ry="2" />
+<text  x="1137.14" y="351.5" ></text>
+</g>
+<g >
+<title>tick_sched_timer (94 samples, 0.02%)</title><rect x="614.0" y="245" width="0.2" height="15.0" fill="rgb(244,87,14)" rx="2" ry="2" />
+<text  x="616.99" y="255.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (5,836 samples, 0.96%)</title><rect x="1176.4" y="309" width="11.3" height="15.0" fill="rgb(222,170,50)" rx="2" ry="2" />
+<text  x="1179.41" y="319.5" ></text>
+</g>
+<g >
+<title>__GI___libc_malloc (88 samples, 0.01%)</title><rect x="42.2" y="373" width="0.1" height="15.0" fill="rgb(220,118,21)" rx="2" ry="2" />
+<text  x="45.16" y="383.5" ></text>
+</g>
+<g >
+<title>std::__copy_streambufs_eof&lt;char, std::char_traits&lt;char&gt; &gt; (614 samples, 0.10%)</title><rect x="1140.3" y="405" width="1.2" height="15.0" fill="rgb(239,66,8)" rx="2" ry="2" />
+<text  x="1143.35" y="415.5" ></text>
+</g>
+<g >
+<title>__GI_____strtod_l_internal (142 samples, 0.02%)</title><rect x="18.7" y="485" width="0.3" height="15.0" fill="rgb(234,200,5)" rx="2" ry="2" />
+<text  x="21.69" y="495.5" ></text>
+</g>
+<g >
+<title>__ext4_handle_dirty_metadata (95 samples, 0.02%)</title><rect x="1185.0" y="53" width="0.2" height="15.0" fill="rgb(215,11,27)" rx="2" ry="2" />
+<text  x="1188.00" y="63.5" ></text>
+</g>
+<g >
+<title>CrossValidation::mergeCpCnPairs (149,350 samples, 24.57%)</title><rect x="54.8" y="405" width="289.9" height="15.0" fill="rgb(240,109,11)" rx="2" ry="2" />
+<text  x="57.75" y="415.5" >CrossValidation::mergeCpCnPairs</text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (638 samples, 0.10%)</title><rect x="343.5" y="197" width="1.2" height="15.0" fill="rgb(225,187,13)" rx="2" ry="2" />
+<text  x="346.47" y="207.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;std::pair&lt;double, bool&gt;, std::allocator&lt;std::pair&lt;double, bool&gt; &gt; &gt;::_M_realloc_insert&lt;std::pair&lt;double, bool&gt; &gt; (126 samples, 0.02%)</title><rect x="317.6" y="357" width="0.3" height="15.0" fill="rgb(249,178,44)" rx="2" ry="2" />
+<text  x="320.61" y="367.5" ></text>
+</g>
+<g >
+<title>unmap_page_range (1,223 samples, 0.20%)</title><rect x="413.8" y="149" width="2.4" height="15.0" fill="rgb(217,29,18)" rx="2" ry="2" />
+<text  x="416.79" y="159.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (812 samples, 0.13%)</title><rect x="313.6" y="101" width="1.6" height="15.0" fill="rgb(217,214,32)" rx="2" ry="2" />
+<text  x="316.64" y="111.5" ></text>
+</g>
+<g >
+<title>Scores::calcScoresSorted (690 samples, 0.11%)</title><rect x="1123.9" y="421" width="1.3" height="15.0" fill="rgb(235,45,1)" rx="2" ry="2" />
+<text  x="1126.90" y="431.5" ></text>
+</g>
+<g >
+<title>start_this_handle (253 samples, 0.04%)</title><rect x="1181.2" y="117" width="0.4" height="15.0" fill="rgb(218,142,0)" rx="2" ry="2" />
+<text  x="1184.16" y="127.5" ></text>
+</g>
+<g >
+<title>FeatureMemoryPool::allocate (87 samples, 0.01%)</title><rect x="1130.1" y="357" width="0.2" height="15.0" fill="rgb(251,131,30)" rx="2" ry="2" />
+<text  x="1133.09" y="367.5" ></text>
+</g>
+<g >
+<title>std::__parallel::sort&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, std::greater&lt;ScoreHolder&gt;, __gnu_parallel::default_parallel_tag&gt; (4,468 samples, 0.74%)</title><rect x="336.0" y="373" width="8.7" height="15.0" fill="rgb(245,32,21)" rx="2" ry="2" />
+<text  x="339.04" y="383.5" ></text>
+</g>
+<g >
+<title>from_kgid (56 samples, 0.01%)</title><rect x="1164.1" y="53" width="0.1" height="15.0" fill="rgb(212,144,29)" rx="2" ry="2" />
+<text  x="1167.10" y="63.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (130 samples, 0.02%)</title><rect x="52.9" y="229" width="0.2" height="15.0" fill="rgb(253,179,41)" rx="2" ry="2" />
+<text  x="55.87" y="239.5" ></text>
+</g>
+<g >
+<title>__ext4_journal_start_sb (60 samples, 0.01%)</title><rect x="1184.1" y="101" width="0.1" height="15.0" fill="rgb(222,200,2)" rx="2" ry="2" />
+<text  x="1187.08" y="111.5" ></text>
+</g>
+<g >
+<title>operator new (84 samples, 0.01%)</title><rect x="35.1" y="405" width="0.1" height="15.0" fill="rgb(240,6,51)" rx="2" ry="2" />
+<text  x="38.07" y="415.5" ></text>
+</g>
+<g >
+<title>__hrtimer_run_queues (101 samples, 0.02%)</title><rect x="614.0" y="261" width="0.2" height="15.0" fill="rgb(218,17,30)" rx="2" ry="2" />
+<text  x="616.98" y="271.5" ></text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.25] (254 samples, 0.04%)</title><rect x="29.6" y="357" width="0.5" height="15.0" fill="rgb(222,199,40)" rx="2" ry="2" />
+<text  x="32.58" y="367.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (1,483 samples, 0.24%)</title><rect x="341.8" y="245" width="2.9" height="15.0" fill="rgb(222,90,32)" rx="2" ry="2" />
+<text  x="344.83" y="255.5" ></text>
+</g>
+<g >
+<title>Scores::generatePositiveTrainingSet (454 samples, 0.07%)</title><rect x="1118.2" y="405" width="0.8" height="15.0" fill="rgb(224,91,1)" rx="2" ry="2" />
+<text  x="1121.16" y="415.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt;::_M_realloc_insert&lt;ScoreHolder&gt; (68 samples, 0.01%)</title><rect x="1126.0" y="405" width="0.1" height="15.0" fill="rgb(241,22,5)" rx="2" ry="2" />
+<text  x="1128.97" y="415.5" ></text>
+</g>
+<g >
+<title>daxpy_ (2,070 samples, 0.34%)</title><rect x="19.9" y="485" width="4.1" height="15.0" fill="rgb(222,135,9)" rx="2" ry="2" />
+<text  x="22.95" y="495.5" ></text>
+</g>
+<g >
+<title>unmap_single_vma (1,230 samples, 0.20%)</title><rect x="413.8" y="165" width="2.4" height="15.0" fill="rgb(238,108,1)" rx="2" ry="2" />
+<text  x="416.77" y="175.5" ></text>
+</g>
+<g >
+<title>__GI___libc_free (84 samples, 0.01%)</title><rect x="51.6" y="405" width="0.2" height="15.0" fill="rgb(243,69,48)" rx="2" ry="2" />
+<text  x="54.65" y="415.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (692 samples, 0.11%)</title><rect x="1114.1" y="245" width="1.3" height="15.0" fill="rgb(241,191,3)" rx="2" ry="2" />
+<text  x="1117.07" y="255.5" ></text>
+</g>
+<g >
+<title>ext4_da_write_end (3,271 samples, 0.54%)</title><rect x="1160.1" y="165" width="6.3" height="15.0" fill="rgb(249,172,30)" rx="2" ry="2" />
+<text  x="1163.10" y="175.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (24,825 samples, 4.08%)</title><rect x="267.3" y="277" width="48.2" height="15.0" fill="rgb(206,212,30)" rx="2" ry="2" />
+<text  x="270.32" y="287.5" >std:..</text>
+</g>
+<g >
+<title>std::__parallel::sort&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, lexicOrderProb, __gnu_parallel::default_parallel_tag&gt; (3,412 samples, 0.56%)</title><rect x="35.5" y="405" width="6.6" height="15.0" fill="rgb(238,111,45)" rx="2" ry="2" />
+<text  x="38.48" y="415.5" ></text>
+</g>
+<g >
+<title>new_sync_read (179 samples, 0.03%)</title><rect x="1140.4" y="261" width="0.4" height="15.0" fill="rgb(244,201,6)" rx="2" ry="2" />
+<text  x="1143.41" y="271.5" ></text>
+</g>
+<g >
+<title>ext4_mark_iloc_dirty (924 samples, 0.15%)</title><rect x="1162.8" y="85" width="1.8" height="15.0" fill="rgb(252,176,51)" rx="2" ry="2" />
+<text  x="1165.77" y="95.5" ></text>
+</g>
+<g >
+<title>do_iter_readv_writev (343 samples, 0.06%)</title><rect x="1140.8" y="245" width="0.7" height="15.0" fill="rgb(241,119,30)" rx="2" ry="2" />
+<text  x="1143.84" y="255.5" ></text>
+</g>
+<g >
+<title>_int_malloc (65 samples, 0.01%)</title><rect x="35.1" y="373" width="0.1" height="15.0" fill="rgb(239,211,45)" rx="2" ry="2" />
+<text  x="38.11" y="383.5" ></text>
+</g>
+<g >
+<title>free_unref_page_list (383 samples, 0.06%)</title><rect x="415.2" y="85" width="0.8" height="15.0" fill="rgb(245,197,37)" rx="2" ry="2" />
+<text  x="418.25" y="95.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (4,834 samples, 0.80%)</title><rect x="1080.1" y="165" width="9.3" height="15.0" fill="rgb(242,13,28)" rx="2" ry="2" />
+<text  x="1083.06" y="175.5" ></text>
+</g>
+<g >
+<title>apic_timer_interrupt (126 samples, 0.02%)</title><rect x="614.0" y="309" width="0.2" height="15.0" fill="rgb(237,146,23)" rx="2" ry="2" />
+<text  x="616.96" y="319.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (574 samples, 0.09%)</title><rect x="52.0" y="373" width="1.1" height="15.0" fill="rgb(242,209,15)" rx="2" ry="2" />
+<text  x="55.01" y="383.5" ></text>
+</g>
+<g >
+<title>__libc_start_main (598,015 samples, 98.40%)</title><rect x="28.1" y="485" width="1161.0" height="15.0" fill="rgb(209,141,54)" rx="2" ry="2" />
+<text  x="31.06" y="495.5" >__libc_start_main</text>
+</g>
+<g >
+<title>tick_sched_timer (54 samples, 0.01%)</title><rect x="984.2" y="261" width="0.1" height="15.0" fill="rgb(241,57,11)" rx="2" ry="2" />
+<text  x="987.21" y="271.5" ></text>
+</g>
+<g >
+<title>round_and_return (52 samples, 0.01%)</title><rect x="1136.8" y="357" width="0.1" height="15.0" fill="rgb(222,221,9)" rx="2" ry="2" />
+<text  x="1139.79" y="367.5" ></text>
+</g>
+<g >
+<title>CrossValidation::mergeCpCnPairs (134,316 samples, 22.10%)</title><rect x="54.8" y="373" width="260.7" height="15.0" fill="rgb(217,49,23)" rx="2" ry="2" />
+<text  x="57.75" y="383.5" >CrossValidation::mergeCpCnPairs</text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (110 samples, 0.02%)</title><rect x="43.4" y="373" width="0.2" height="15.0" fill="rgb(221,55,54)" rx="2" ry="2" />
+<text  x="46.37" y="383.5" ></text>
+</g>
+<g >
+<title>vm_munmap (228 samples, 0.04%)</title><rect x="1119.0" y="309" width="0.5" height="15.0" fill="rgb(215,160,28)" rx="2" ry="2" />
+<text  x="1122.05" y="319.5" ></text>
+</g>
+<g >
+<title>std::ostream::flush (571 samples, 0.09%)</title><rect x="30.4" y="405" width="1.1" height="15.0" fill="rgb(246,62,43)" rx="2" ry="2" />
+<text  x="33.41" y="415.5" ></text>
+</g>
+<g >
+<title>std::_Rb_tree&lt;std::pair&lt;int, double&gt;, std::pair&lt;std::pair&lt;int, double&gt; const, bool&gt;, std::_Select1st&lt;std::pair&lt;std::pair&lt;int, double&gt; const, bool&gt; &gt;, std::less&lt;std::pair&lt;int, double&gt; &gt;, std::allocator&lt;std::pair&lt;std::pair&lt;int, double&gt; const, bool&gt; &gt; &gt;::_M_erase (93 samples, 0.02%)</title><rect x="1137.4" y="373" width="0.1" height="15.0" fill="rgb(232,201,28)" rx="2" ry="2" />
+<text  x="1140.36" y="383.5" ></text>
+</g>
+<g >
+<title>malloc_consolidate (887 samples, 0.15%)</title><rect x="1138.5" y="373" width="1.8" height="15.0" fill="rgb(232,166,20)" rx="2" ry="2" />
+<text  x="1141.55" y="383.5" ></text>
+</g>
+<g >
+<title>__GI___libc_free (95 samples, 0.02%)</title><rect x="1024.3" y="325" width="0.2" height="15.0" fill="rgb(216,42,32)" rx="2" ry="2" />
+<text  x="1027.31" y="335.5" ></text>
+</g>
+<g >
+<title>__getblk_gfp (139 samples, 0.02%)</title><rect x="1185.8" y="53" width="0.3" height="15.0" fill="rgb(247,19,49)" rx="2" ry="2" />
+<text  x="1188.81" y="63.5" ></text>
+</g>
+<g >
+<title>std::__parallel::sort&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, std::greater&lt;ScoreHolder&gt;, __gnu_parallel::default_parallel_tag&gt; (261 samples, 0.04%)</title><rect x="1126.2" y="421" width="0.5" height="15.0" fill="rgb(235,60,40)" rx="2" ry="2" />
+<text  x="1129.23" y="431.5" ></text>
+</g>
+<g >
+<title>GOMP_parallel (134,316 samples, 22.10%)</title><rect x="54.8" y="389" width="260.7" height="15.0" fill="rgb(235,127,10)" rx="2" ry="2" />
+<text  x="57.75" y="399.5" >GOMP_parallel</text>
+</g>
+<g >
+<title>aa_file_perm (60 samples, 0.01%)</title><rect x="1167.9" y="181" width="0.1" height="15.0" fill="rgb(207,121,24)" rx="2" ry="2" />
+<text  x="1170.92" y="191.5" ></text>
+</g>
+<g >
+<title>FeatureMemoryPool::destroyPool (887 samples, 0.15%)</title><rect x="1138.5" y="421" width="1.8" height="15.0" fill="rgb(251,27,16)" rx="2" ry="2" />
+<text  x="1141.55" y="431.5" ></text>
+</g>
+<g >
+<title>_IO_new_do_write (547 samples, 0.09%)</title><rect x="30.5" y="357" width="1.0" height="15.0" fill="rgb(223,22,7)" rx="2" ry="2" />
+<text  x="33.45" y="367.5" ></text>
+</g>
+<g >
+<title>__GI_____strtod_l_internal (195 samples, 0.03%)</title><rect x="1136.6" y="373" width="0.3" height="15.0" fill="rgb(234,64,49)" rx="2" ry="2" />
+<text  x="1139.55" y="383.5" ></text>
+</g>
+<g >
+<title>SetHandler::readTab (5,367 samples, 0.88%)</title><rect x="1127.6" y="437" width="10.4" height="15.0" fill="rgb(224,213,17)" rx="2" ry="2" />
+<text  x="1130.56" y="447.5" ></text>
+</g>
+<g >
+<title>sync_regs (105 samples, 0.02%)</title><rect x="473.9" y="293" width="0.2" height="15.0" fill="rgb(220,214,35)" rx="2" ry="2" />
+<text  x="476.93" y="303.5" ></text>
+</g>
+<g >
+<title>syscall_return_via_sysret (707 samples, 0.12%)</title><rect x="1168.1" y="309" width="1.4" height="15.0" fill="rgb(211,98,2)" rx="2" ry="2" />
+<text  x="1171.15" y="319.5" ></text>
+</g>
+<g >
+<title>do_iter_write (348 samples, 0.06%)</title><rect x="1140.8" y="261" width="0.7" height="15.0" fill="rgb(224,9,6)" rx="2" ry="2" />
+<text  x="1143.84" y="271.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (2,438 samples, 0.40%)</title><rect x="36.3" y="357" width="4.8" height="15.0" fill="rgb(220,18,20)" rx="2" ry="2" />
+<text  x="39.33" y="367.5" ></text>
+</g>
+<g >
+<title>__page_set_anon_rmap (79 samples, 0.01%)</title><rect x="483.7" y="213" width="0.1" height="15.0" fill="rgb(232,221,36)" rx="2" ry="2" />
+<text  x="486.68" y="223.5" ></text>
+</g>
+<g >
+<title>std::__ostream_insert&lt;char, std::char_traits&lt;char&gt; &gt; (385 samples, 0.06%)</title><rect x="1172.5" y="405" width="0.7" height="15.0" fill="rgb(248,80,14)" rx="2" ry="2" />
+<text  x="1175.45" y="415.5" ></text>
+</g>
+<g >
+<title>str_to_mpn (93 samples, 0.02%)</title><rect x="27.3" y="485" width="0.2" height="15.0" fill="rgb(238,144,43)" rx="2" ry="2" />
+<text  x="30.33" y="495.5" ></text>
+</g>
+<g >
+<title>std::__basic_file&lt;char&gt;::xsputn_2 (385 samples, 0.06%)</title><rect x="1140.8" y="373" width="0.7" height="15.0" fill="rgb(251,150,49)" rx="2" ry="2" />
+<text  x="1143.79" y="383.5" ></text>
+</g>
+<g >
+<title>grab_cache_page_write_begin (581 samples, 0.10%)</title><rect x="1158.8" y="149" width="1.1" height="15.0" fill="rgb(205,61,46)" rx="2" ry="2" />
+<text  x="1161.76" y="159.5" ></text>
+</g>
+<g >
+<title>free_pages_and_swap_cache (148 samples, 0.02%)</title><rect x="1119.2" y="197" width="0.3" height="15.0" fill="rgb(250,148,42)" rx="2" ry="2" />
+<text  x="1122.20" y="207.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (80 samples, 0.01%)</title><rect x="1115.3" y="85" width="0.1" height="15.0" fill="rgb(245,165,15)" rx="2" ry="2" />
+<text  x="1118.25" y="95.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_construct&lt;char const*&gt; (63 samples, 0.01%)</title><rect x="1142.3" y="405" width="0.1" height="15.0" fill="rgb(240,70,10)" rx="2" ry="2" />
+<text  x="1145.31" y="415.5" ></text>
+</g>
+<g >
+<title>std::_Rb_tree_insert_and_rebalance (76 samples, 0.01%)</title><rect x="35.3" y="405" width="0.2" height="15.0" fill="rgb(250,163,11)" rx="2" ry="2" />
+<text  x="38.31" y="415.5" ></text>
+</g>
+<g >
+<title>__find_get_block (151 samples, 0.02%)</title><rect x="1165.1" y="37" width="0.3" height="15.0" fill="rgb(237,15,28)" rx="2" ry="2" />
+<text  x="1168.14" y="47.5" ></text>
+</g>
+<g >
+<title>find_get_entry (191 samples, 0.03%)</title><rect x="1182.3" y="117" width="0.3" height="15.0" fill="rgb(247,47,11)" rx="2" ry="2" />
+<text  x="1185.27" y="127.5" ></text>
+</g>
+<g >
+<title>memcpy@plt (104 samples, 0.02%)</title><rect x="759.3" y="325" width="0.2" height="15.0" fill="rgb(225,122,54)" rx="2" ry="2" />
+<text  x="762.28" y="335.5" ></text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.25] (6,621 samples, 1.09%)</title><rect x="1175.7" y="341" width="12.9" height="15.0" fill="rgb(218,212,54)" rx="2" ry="2" />
+<text  x="1178.70" y="351.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (895 samples, 0.15%)</title><rect x="39.3" y="277" width="1.8" height="15.0" fill="rgb(233,135,16)" rx="2" ry="2" />
+<text  x="42.33" y="287.5" ></text>
+</g>
+<g >
+<title>page_fault (284 samples, 0.05%)</title><rect x="1123.0" y="389" width="0.5" height="15.0" fill="rgb(245,78,18)" rx="2" ry="2" />
+<text  x="1126.00" y="399.5" ></text>
+</g>
+<g >
+<title>ext4_block_write_begin (194 samples, 0.03%)</title><rect x="1158.2" y="149" width="0.4" height="15.0" fill="rgb(252,65,0)" rx="2" ry="2" />
+<text  x="1161.19" y="159.5" ></text>
+</g>
+<g >
+<title>__block_commit_write.isra.34 (187 samples, 0.03%)</title><rect x="1166.0" y="117" width="0.3" height="15.0" fill="rgb(250,212,21)" rx="2" ry="2" />
+<text  x="1168.96" y="127.5" ></text>
+</g>
+<g >
+<title>update_process_times (86 samples, 0.01%)</title><rect x="752.1" y="213" width="0.2" height="15.0" fill="rgb(227,125,42)" rx="2" ry="2" />
+<text  x="755.11" y="223.5" ></text>
+</g>
+<g >
+<title>__vfs_read (179 samples, 0.03%)</title><rect x="1140.4" y="277" width="0.4" height="15.0" fill="rgb(248,208,9)" rx="2" ry="2" />
+<text  x="1143.41" y="287.5" ></text>
+</g>
+<g >
+<title>__mpn_lshift (92 samples, 0.02%)</title><rect x="1133.6" y="341" width="0.2" height="15.0" fill="rgb(222,69,39)" rx="2" ry="2" />
+<text  x="1136.58" y="351.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (1,476 samples, 0.24%)</title><rect x="38.2" y="309" width="2.9" height="15.0" fill="rgb(244,78,32)" rx="2" ry="2" />
+<text  x="41.20" y="319.5" ></text>
+</g>
+<g >
+<title>tick_sched_handle (86 samples, 0.01%)</title><rect x="752.1" y="229" width="0.2" height="15.0" fill="rgb(207,43,5)" rx="2" ry="2" />
+<text  x="755.11" y="239.5" ></text>
+</g>
+<g >
+<title>new_do_write (547 samples, 0.09%)</title><rect x="30.5" y="341" width="1.0" height="15.0" fill="rgb(251,170,52)" rx="2" ry="2" />
+<text  x="33.45" y="351.5" ></text>
+</g>
+<g >
+<title>common_file_perm (141 samples, 0.02%)</title><rect x="1167.8" y="197" width="0.2" height="15.0" fill="rgb(254,199,11)" rx="2" ry="2" />
+<text  x="1170.77" y="207.5" ></text>
+</g>
+<g >
+<title>SanityCheck::getInitDirection (824 samples, 0.14%)</title><rect x="43.6" y="421" width="1.6" height="15.0" fill="rgb(217,64,49)" rx="2" ry="2" />
+<text  x="46.58" y="431.5" ></text>
+</g>
+<g >
+<title>__lru_cache_add (53 samples, 0.01%)</title><rect x="1121.5" y="293" width="0.1" height="15.0" fill="rgb(253,108,5)" rx="2" ry="2" />
+<text  x="1124.52" y="303.5" ></text>
+</g>
+<g >
+<title>__strlen_avx2 (101 samples, 0.02%)</title><rect x="1133.9" y="341" width="0.2" height="15.0" fill="rgb(232,33,44)" rx="2" ry="2" />
+<text  x="1136.93" y="351.5" ></text>
+</g>
+<g >
+<title>pagevec_lru_move_fn (52 samples, 0.01%)</title><rect x="1121.5" y="277" width="0.1" height="15.0" fill="rgb(223,35,52)" rx="2" ry="2" />
+<text  x="1124.52" y="287.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (11,766 samples, 1.94%)</title><rect x="1066.6" y="213" width="22.8" height="15.0" fill="rgb(239,2,1)" rx="2" ry="2" />
+<text  x="1069.60" y="223.5" >s..</text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (480 samples, 0.08%)</title><rect x="1114.5" y="213" width="0.9" height="15.0" fill="rgb(225,76,37)" rx="2" ry="2" />
+<text  x="1117.48" y="223.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (215 samples, 0.04%)</title><rect x="1140.4" y="341" width="0.4" height="15.0" fill="rgb(225,84,40)" rx="2" ry="2" />
+<text  x="1143.36" y="351.5" ></text>
+</g>
+<g >
+<title>_int_malloc (82 samples, 0.01%)</title><rect x="1136.1" y="309" width="0.2" height="15.0" fill="rgb(217,189,51)" rx="2" ry="2" />
+<text  x="1139.14" y="319.5" ></text>
+</g>
+<g >
+<title>vfs_read (127 samples, 0.02%)</title><rect x="1137.7" y="277" width="0.3" height="15.0" fill="rgb(249,153,37)" rx="2" ry="2" />
+<text  x="1140.70" y="287.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (3,881 samples, 0.64%)</title><rect x="307.8" y="149" width="7.5" height="15.0" fill="rgb(233,222,53)" rx="2" ry="2" />
+<text  x="310.80" y="159.5" ></text>
+</g>
+<g >
+<title>Scores::weedOutRedundant (5,569 samples, 0.92%)</title><rect x="31.5" y="421" width="10.8" height="15.0" fill="rgb(247,168,6)" rx="2" ry="2" />
+<text  x="34.52" y="431.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (667 samples, 0.11%)</title><rect x="39.8" y="261" width="1.3" height="15.0" fill="rgb(206,126,10)" rx="2" ry="2" />
+<text  x="42.77" y="271.5" ></text>
+</g>
+<g >
+<title>Scores::getScoreLabelPairs (454 samples, 0.07%)</title><rect x="17.4" y="485" width="0.9" height="15.0" fill="rgb(223,23,0)" rx="2" ry="2" />
+<text  x="20.37" y="495.5" ></text>
+</g>
+<g >
+<title>vfs_write (338 samples, 0.06%)</title><rect x="30.8" y="245" width="0.6" height="15.0" fill="rgb(247,46,2)" rx="2" ry="2" />
+<text  x="33.79" y="255.5" ></text>
+</g>
+<g >
+<title>alloc_pages_vma (2,194 samples, 0.36%)</title><rect x="477.5" y="229" width="4.3" height="15.0" fill="rgb(223,115,51)" rx="2" ry="2" />
+<text  x="480.52" y="239.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (2,674 samples, 0.44%)</title><rect x="35.9" y="373" width="5.2" height="15.0" fill="rgb(229,204,45)" rx="2" ry="2" />
+<text  x="38.87" y="383.5" ></text>
+</g>
+<g >
+<title>__find_get_block (85 samples, 0.01%)</title><rect x="1185.9" y="37" width="0.1" height="15.0" fill="rgb(225,203,26)" rx="2" ry="2" />
+<text  x="1188.86" y="47.5" ></text>
+</g>
+<g >
+<title>std::_Rb_tree&lt;PSMDescription*, std::pair&lt;PSMDescription* const, std::vector&lt;PSMDescription*, std::allocator&lt;PSMDescription*&gt; &gt; &gt;, std::_Select1st&lt;std::pair&lt;PSMDescription* const, std::vector&lt;PSMDescription*, std::allocator&lt;PSMDescription*&gt; &gt; &gt; &gt;, std::less&lt;PSMDescription*&gt;, std::allocator&lt;std::pair&lt;PSMDescription* const, std::vector&lt;PSMDescription*, std::allocator&lt;PSMDescription*&gt; &gt; &gt; &gt; &gt;::_M_erase (216 samples, 0.04%)</title><rect x="1188.7" y="421" width="0.4" height="15.0" fill="rgb(230,162,10)" rx="2" ry="2" />
+<text  x="1191.71" y="431.5" ></text>
+</g>
+<g >
+<title>ext4_mark_iloc_dirty (555 samples, 0.09%)</title><rect x="1184.5" y="85" width="1.0" height="15.0" fill="rgb(243,47,39)" rx="2" ry="2" />
+<text  x="1187.46" y="95.5" ></text>
+</g>
+<g >
+<title>pagecache_get_page (304 samples, 0.05%)</title><rect x="1182.1" y="133" width="0.6" height="15.0" fill="rgb(232,69,53)" rx="2" ry="2" />
+<text  x="1185.07" y="143.5" ></text>
+</g>
+<g >
+<title>Scores::postMergeStep (159 samples, 0.03%)</title><rect x="34.6" y="405" width="0.3" height="15.0" fill="rgb(211,220,6)" rx="2" ry="2" />
+<text  x="37.58" y="415.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (1,839 samples, 0.30%)</title><rect x="1111.8" y="325" width="3.6" height="15.0" fill="rgb(247,60,31)" rx="2" ry="2" />
+<text  x="1114.85" y="335.5" ></text>
+</g>
+<g >
+<title>kmem_cache_free (123 samples, 0.02%)</title><rect x="1161.4" y="117" width="0.2" height="15.0" fill="rgb(212,158,31)" rx="2" ry="2" />
+<text  x="1164.35" y="127.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (570 samples, 0.09%)</title><rect x="1114.3" y="229" width="1.1" height="15.0" fill="rgb(206,20,21)" rx="2" ry="2" />
+<text  x="1117.31" y="239.5" ></text>
+</g>
+<g >
+<title>smp_apic_timer_interrupt (137 samples, 0.02%)</title><rect x="752.1" y="293" width="0.2" height="15.0" fill="rgb(222,225,48)" rx="2" ry="2" />
+<text  x="755.05" y="303.5" ></text>
+</g>
+<g >
+<title>_IO_vfprintf_internal (217 samples, 0.04%)</title><rect x="29.6" y="325" width="0.5" height="15.0" fill="rgb(238,45,24)" rx="2" ry="2" />
+<text  x="32.63" y="335.5" ></text>
+</g>
+<g >
+<title>CrossValidation::doStep (383,826 samples, 63.15%)</title><rect x="344.7" y="389" width="745.2" height="15.0" fill="rgb(205,56,31)" rx="2" ry="2" />
+<text  x="347.72" y="399.5" >CrossValidation::doStep</text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (70 samples, 0.01%)</title><rect x="34.8" y="309" width="0.1" height="15.0" fill="rgb(243,125,4)" rx="2" ry="2" />
+<text  x="37.75" y="319.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (532 samples, 0.09%)</title><rect x="52.1" y="357" width="1.0" height="15.0" fill="rgb(240,224,19)" rx="2" ry="2" />
+<text  x="55.09" y="367.5" ></text>
+</g>
+<g >
+<title>ext4_dirty_inode (57 samples, 0.01%)</title><rect x="1141.3" y="133" width="0.1" height="15.0" fill="rgb(217,131,49)" rx="2" ry="2" />
+<text  x="1144.27" y="143.5" ></text>
+</g>
+<g >
+<title>std::ostream::flush (11,240 samples, 1.85%)</title><rect x="1147.7" y="405" width="21.9" height="15.0" fill="rgb(207,147,42)" rx="2" ry="2" />
+<text  x="1150.75" y="415.5" >s..</text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (90 samples, 0.01%)</title><rect x="344.5" y="133" width="0.2" height="15.0" fill="rgb(211,136,41)" rx="2" ry="2" />
+<text  x="347.51" y="143.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (223 samples, 0.04%)</title><rect x="52.7" y="261" width="0.4" height="15.0" fill="rgb(233,226,27)" rx="2" ry="2" />
+<text  x="55.69" y="271.5" ></text>
+</g>
+<g >
+<title>__generic_file_write_iter (299 samples, 0.05%)</title><rect x="30.8" y="181" width="0.6" height="15.0" fill="rgb(239,3,37)" rx="2" ry="2" />
+<text  x="33.83" y="191.5" ></text>
+</g>
+<g >
+<title>munmap_chunk (95 samples, 0.02%)</title><rect x="1024.3" y="309" width="0.2" height="15.0" fill="rgb(227,84,46)" rx="2" ry="2" />
+<text  x="1027.31" y="319.5" ></text>
+</g>
+<g >
+<title>try_charge (161 samples, 0.03%)</title><rect x="483.2" y="213" width="0.3" height="15.0" fill="rgb(208,188,50)" rx="2" ry="2" />
+<text  x="486.17" y="223.5" ></text>
+</g>
+<g >
+<title>__mpn_mul (91 samples, 0.01%)</title><rect x="1133.8" y="341" width="0.1" height="15.0" fill="rgb(231,73,21)" rx="2" ry="2" />
+<text  x="1136.76" y="351.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (101 samples, 0.02%)</title><rect x="34.7" y="357" width="0.2" height="15.0" fill="rgb(226,18,20)" rx="2" ry="2" />
+<text  x="37.69" y="367.5" ></text>
+</g>
+<g >
+<title>native_irq_return_iret (106 samples, 0.02%)</title><rect x="1120.5" y="389" width="0.2" height="15.0" fill="rgb(253,192,17)" rx="2" ry="2" />
+<text  x="1123.48" y="399.5" ></text>
+</g>
+<g >
+<title>ScoreHolder::toPair (314 samples, 0.05%)</title><rect x="72.7" y="325" width="0.6" height="15.0" fill="rgb(252,191,17)" rx="2" ry="2" />
+<text  x="75.70" y="335.5" ></text>
+</g>
+<g >
+<title>ext4_file_write_iter (342 samples, 0.06%)</title><rect x="1140.8" y="229" width="0.7" height="15.0" fill="rgb(224,77,11)" rx="2" ry="2" />
+<text  x="1143.84" y="239.5" ></text>
+</g>
+<g >
+<title>page_remove_rmap (122 samples, 0.02%)</title><rect x="414.5" y="133" width="0.2" height="15.0" fill="rgb(218,98,28)" rx="2" ry="2" />
+<text  x="417.51" y="143.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (373 samples, 0.06%)</title><rect x="1140.8" y="341" width="0.7" height="15.0" fill="rgb(230,191,24)" rx="2" ry="2" />
+<text  x="1143.79" y="351.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (2,665 samples, 0.44%)</title><rect x="1110.2" y="373" width="5.2" height="15.0" fill="rgb(206,65,6)" rx="2" ry="2" />
+<text  x="1113.24" y="383.5" ></text>
+</g>
+<g >
+<title>do_writev (353 samples, 0.06%)</title><rect x="1140.8" y="293" width="0.7" height="15.0" fill="rgb(210,51,14)" rx="2" ry="2" />
+<text  x="1143.83" y="303.5" ></text>
+</g>
+<g >
+<title>free_pcppages_bulk (290 samples, 0.05%)</title><rect x="415.4" y="53" width="0.6" height="15.0" fill="rgb(247,47,14)" rx="2" ry="2" />
+<text  x="418.42" y="63.5" ></text>
+</g>
+<g >
+<title>PSMDescription::deletePtr (136 samples, 0.02%)</title><rect x="1138.0" y="405" width="0.3" height="15.0" fill="rgb(214,164,34)" rx="2" ry="2" />
+<text  x="1140.99" y="415.5" ></text>
+</g>
+<g >
+<title>copy_user_generic_unrolled (62 samples, 0.01%)</title><rect x="1166.8" y="149" width="0.1" height="15.0" fill="rgb(226,17,4)" rx="2" ry="2" />
+<text  x="1169.79" y="159.5" ></text>
+</g>
+<g >
+<title>std::_Rb_tree&lt;PSMDescription*, std::pair&lt;PSMDescription* const, std::vector&lt;PSMDescription*, std::allocator&lt;PSMDescription*&gt; &gt; &gt;, std::_Select1st&lt;std::pair&lt;PSMDescription* const, std::vector&lt;PSMDescription*, std::allocator&lt;PSMDescription*&gt; &gt; &gt; &gt;, std::less&lt;PSMDescription*&gt;, std::allocator&lt;std::pair&lt;PSMDescription* const, std::vector&lt;PSMDescription*, std::allocator&lt;PSMDescription*&gt; &gt; &gt; &gt; &gt;::_M_erase (283 samples, 0.05%)</title><rect x="1188.6" y="437" width="0.5" height="15.0" fill="rgb(231,83,41)" rx="2" ry="2" />
+<text  x="1191.58" y="447.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (214 samples, 0.04%)</title><rect x="1126.3" y="389" width="0.4" height="15.0" fill="rgb(232,179,53)" rx="2" ry="2" />
+<text  x="1129.33" y="399.5" ></text>
+</g>
+<g >
+<title>std::num_put&lt;char, std::ostreambuf_iterator&lt;char, std::char_traits&lt;char&gt; &gt; &gt;::_M_insert_float&lt;double&gt; (335 samples, 0.06%)</title><rect x="29.5" y="373" width="0.7" height="15.0" fill="rgb(231,81,10)" rx="2" ry="2" />
+<text  x="32.53" y="383.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (874 samples, 0.14%)</title><rect x="1113.7" y="261" width="1.7" height="15.0" fill="rgb(244,112,33)" rx="2" ry="2" />
+<text  x="1116.72" y="271.5" ></text>
+</g>
+<g >
+<title>__mark_inode_dirty (61 samples, 0.01%)</title><rect x="1141.3" y="149" width="0.1" height="15.0" fill="rgb(228,219,54)" rx="2" ry="2" />
+<text  x="1144.27" y="159.5" ></text>
+</g>
+<g >
+<title>__ext4_journal_start_sb (482 samples, 0.08%)</title><rect x="1180.7" y="149" width="1.0" height="15.0" fill="rgb(222,64,47)" rx="2" ry="2" />
+<text  x="1183.75" y="159.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (435 samples, 0.07%)</title><rect x="343.9" y="181" width="0.8" height="15.0" fill="rgb(227,42,47)" rx="2" ry="2" />
+<text  x="346.86" y="191.5" ></text>
+</g>
+<g >
+<title>tick_sched_timer (104 samples, 0.02%)</title><rect x="752.1" y="245" width="0.2" height="15.0" fill="rgb(242,21,2)" rx="2" ry="2" />
+<text  x="755.07" y="255.5" ></text>
+</g>
+<g >
+<title>generic_write_end (106 samples, 0.02%)</title><rect x="31.2" y="133" width="0.2" height="15.0" fill="rgb(246,61,49)" rx="2" ry="2" />
+<text  x="34.16" y="143.5" ></text>
+</g>
+<g >
+<title>start_this_handle (366 samples, 0.06%)</title><rect x="1157.4" y="117" width="0.7" height="15.0" fill="rgb(211,175,33)" rx="2" ry="2" />
+<text  x="1160.41" y="127.5" ></text>
+</g>
+<g >
+<title>get_rounding_mode (67 samples, 0.01%)</title><rect x="1134.8" y="325" width="0.1" height="15.0" fill="rgb(238,187,22)" rx="2" ry="2" />
+<text  x="1137.76" y="335.5" ></text>
+</g>
+<g >
+<title>unmap_vmas (224 samples, 0.04%)</title><rect x="1119.1" y="261" width="0.4" height="15.0" fill="rgb(208,126,8)" rx="2" ry="2" />
+<text  x="1122.05" y="271.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (419 samples, 0.07%)</title><rect x="52.3" y="325" width="0.8" height="15.0" fill="rgb(233,47,26)" rx="2" ry="2" />
+<text  x="55.31" y="335.5" ></text>
+</g>
+<g >
+<title>pagecache_get_page (70 samples, 0.01%)</title><rect x="1141.1" y="149" width="0.1" height="15.0" fill="rgb(252,46,54)" rx="2" ry="2" />
+<text  x="1144.06" y="159.5" ></text>
+</g>
+<g >
+<title>__ext4_journal_get_write_access (53 samples, 0.01%)</title><rect x="1186.2" y="69" width="0.1" height="15.0" fill="rgb(207,204,14)" rx="2" ry="2" />
+<text  x="1189.15" y="79.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (21,623 samples, 3.56%)</title><rect x="273.5" y="261" width="42.0" height="15.0" fill="rgb(244,111,32)" rx="2" ry="2" />
+<text  x="276.53" y="271.5" >std..</text>
+</g>
+<g >
+<title>__GI___libc_malloc (84 samples, 0.01%)</title><rect x="35.1" y="389" width="0.1" height="15.0" fill="rgb(205,124,20)" rx="2" ry="2" />
+<text  x="38.07" y="399.5" ></text>
+</g>
+<g >
+<title>XMLInterface::writeXML_PSMs (14,450 samples, 2.38%)</title><rect x="1141.5" y="437" width="28.1" height="15.0" fill="rgb(249,195,25)" rx="2" ry="2" />
+<text  x="1144.54" y="447.5" >X..</text>
+</g>
+<g >
+<title>__generic_file_write_iter (338 samples, 0.06%)</title><rect x="1140.8" y="213" width="0.7" height="15.0" fill="rgb(223,180,39)" rx="2" ry="2" />
+<text  x="1143.84" y="223.5" ></text>
+</g>
+<g >
+<title>DataSet::fillFeatures (130 samples, 0.02%)</title><rect x="1126.7" y="421" width="0.3" height="15.0" fill="rgb(247,158,21)" rx="2" ry="2" />
+<text  x="1129.74" y="431.5" ></text>
+</g>
+<g >
+<title>_IO_vsnprintf (765 samples, 0.13%)</title><rect x="1173.5" y="357" width="1.5" height="15.0" fill="rgb(245,142,41)" rx="2" ry="2" />
+<text  x="1176.49" y="367.5" ></text>
+</g>
+<g >
+<title>_int_malloc (70 samples, 0.01%)</title><rect x="759.5" y="293" width="0.1" height="15.0" fill="rgb(210,46,38)" rx="2" ry="2" />
+<text  x="762.48" y="303.5" ></text>
+</g>
+<g >
+<title>iov_iter_copy_from_user_atomic (139 samples, 0.02%)</title><rect x="1166.6" y="165" width="0.3" height="15.0" fill="rgb(248,87,23)" rx="2" ry="2" />
+<text  x="1169.65" y="175.5" ></text>
+</g>
+<g >
+<title>ext4_nonda_switch (54 samples, 0.01%)</title><rect x="1181.9" y="149" width="0.1" height="15.0" fill="rgb(223,88,45)" rx="2" ry="2" />
+<text  x="1184.92" y="159.5" ></text>
+</g>
+<g >
+<title>__vfs_read (123 samples, 0.02%)</title><rect x="1137.7" y="261" width="0.2" height="15.0" fill="rgb(229,35,20)" rx="2" ry="2" />
+<text  x="1140.70" y="271.5" ></text>
+</g>
+<g >
+<title>prepare_exit_to_usermode (1,569 samples, 0.26%)</title><rect x="485.6" y="293" width="3.0" height="15.0" fill="rgb(210,50,45)" rx="2" ry="2" />
+<text  x="488.57" y="303.5" ></text>
+</g>
+<g >
+<title>Scores::calcScoresSorted (13,841 samples, 2.28%)</title><rect x="317.9" y="389" width="26.8" height="15.0" fill="rgb(254,33,31)" rx="2" ry="2" />
+<text  x="320.85" y="399.5" >S..</text>
+</g>
+<g >
+<title>GOMP_parallel (383,826 samples, 63.15%)</title><rect x="344.7" y="405" width="745.2" height="15.0" fill="rgb(225,42,5)" rx="2" ry="2" />
+<text  x="347.72" y="415.5" >GOMP_parallel</text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (2,450 samples, 0.40%)</title><rect x="310.5" y="133" width="4.8" height="15.0" fill="rgb(226,7,7)" rx="2" ry="2" />
+<text  x="313.53" y="143.5" ></text>
+</g>
+<g >
+<title>apic_timer_interrupt (140 samples, 0.02%)</title><rect x="752.0" y="309" width="0.3" height="15.0" fill="rgb(226,118,47)" rx="2" ry="2" />
+<text  x="755.05" y="319.5" ></text>
+</g>
+<g >
+<title>tick_sched_handle (78 samples, 0.01%)</title><rect x="614.0" y="229" width="0.2" height="15.0" fill="rgb(235,223,45)" rx="2" ry="2" />
+<text  x="617.02" y="239.5" ></text>
+</g>
+<g >
+<title>PosteriorEstimator::getQValues (4,294 samples, 0.71%)</title><rect x="60.4" y="341" width="8.3" height="15.0" fill="rgb(224,5,36)" rx="2" ry="2" />
+<text  x="63.39" y="351.5" ></text>
+</g>
+<g >
+<title>__memmove_avx_unaligned_erms (37,325 samples, 6.14%)</title><rect x="416.2" y="325" width="72.4" height="15.0" fill="rgb(226,214,27)" rx="2" ry="2" />
+<text  x="419.16" y="335.5" >__memmov..</text>
+</g>
+<g >
+<title>ext4_mark_inode_dirty (1,668 samples, 0.27%)</title><rect x="1162.6" y="101" width="3.3" height="15.0" fill="rgb(251,150,36)" rx="2" ry="2" />
+<text  x="1165.63" y="111.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (2,812 samples, 0.46%)</title><rect x="339.3" y="309" width="5.4" height="15.0" fill="rgb(236,185,34)" rx="2" ry="2" />
+<text  x="342.26" y="319.5" ></text>
+</g>
+<g >
+<title>_IO_vsnprintf (1,646 samples, 0.27%)</title><rect x="1144.0" y="357" width="3.2" height="15.0" fill="rgb(227,152,5)" rx="2" ry="2" />
+<text  x="1147.00" y="367.5" ></text>
+</g>
+<g >
+<title>__entry_trampoline_start (304 samples, 0.05%)</title><rect x="1175.8" y="309" width="0.6" height="15.0" fill="rgb(206,135,22)" rx="2" ry="2" />
+<text  x="1178.79" y="319.5" ></text>
+</g>
+<g >
+<title>generic_file_read_iter (176 samples, 0.03%)</title><rect x="1140.4" y="229" width="0.4" height="15.0" fill="rgb(222,94,38)" rx="2" ry="2" />
+<text  x="1143.42" y="239.5" ></text>
+</g>
+<g >
+<title>__block_commit_write.isra.34 (117 samples, 0.02%)</title><rect x="1186.4" y="117" width="0.2" height="15.0" fill="rgb(220,177,44)" rx="2" ry="2" />
+<text  x="1189.38" y="127.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (9,456 samples, 1.56%)</title><rect x="1149.8" y="309" width="18.3" height="15.0" fill="rgb(229,68,25)" rx="2" ry="2" />
+<text  x="1152.79" y="319.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (18,513 samples, 3.05%)</title><rect x="279.6" y="245" width="35.9" height="15.0" fill="rgb(209,64,32)" rx="2" ry="2" />
+<text  x="282.57" y="255.5" >std..</text>
+</g>
+<g >
+<title>prepare_exit_to_usermode (214 samples, 0.04%)</title><rect x="1122.0" y="373" width="0.4" height="15.0" fill="rgb(209,68,54)" rx="2" ry="2" />
+<text  x="1124.95" y="383.5" ></text>
+</g>
+<g >
+<title>page_fault (598 samples, 0.10%)</title><rect x="1120.7" y="389" width="1.1" height="15.0" fill="rgb(235,179,27)" rx="2" ry="2" />
+<text  x="1123.68" y="399.5" ></text>
+</g>
+<g >
+<title>operator new (267 samples, 0.04%)</title><rect x="43.7" y="357" width="0.5" height="15.0" fill="rgb(231,72,44)" rx="2" ry="2" />
+<text  x="46.72" y="367.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (77 samples, 0.01%)</title><rect x="1089.3" y="53" width="0.1" height="15.0" fill="rgb(233,40,12)" rx="2" ry="2" />
+<text  x="1092.29" y="63.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (214 samples, 0.04%)</title><rect x="1140.4" y="325" width="0.4" height="15.0" fill="rgb(218,76,27)" rx="2" ry="2" />
+<text  x="1143.36" y="335.5" ></text>
+</g>
+<g >
+<title>Scores::calcQ (151 samples, 0.02%)</title><rect x="28.7" y="421" width="0.3" height="15.0" fill="rgb(208,204,54)" rx="2" ry="2" />
+<text  x="31.67" y="431.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (1,310 samples, 0.22%)</title><rect x="1112.9" y="293" width="2.5" height="15.0" fill="rgb(246,5,22)" rx="2" ry="2" />
+<text  x="1115.87" y="303.5" ></text>
+</g>
+<g >
+<title>clear_page_erms (99 samples, 0.02%)</title><rect x="1024.9" y="213" width="0.2" height="15.0" fill="rgb(243,227,9)" rx="2" ry="2" />
+<text  x="1027.94" y="223.5" ></text>
+</g>
+<g >
+<title>operator new (199 samples, 0.03%)</title><rect x="51.3" y="373" width="0.3" height="15.0" fill="rgb(232,84,17)" rx="2" ry="2" />
+<text  x="54.26" y="383.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (2,104 samples, 0.35%)</title><rect x="1111.3" y="341" width="4.1" height="15.0" fill="rgb(239,123,41)" rx="2" ry="2" />
+<text  x="1114.33" y="351.5" ></text>
+</g>
+<g >
+<title>__memmove_avx_unaligned_erms (97 samples, 0.02%)</title><rect x="1143.1" y="373" width="0.2" height="15.0" fill="rgb(210,54,30)" rx="2" ry="2" />
+<text  x="1146.09" y="383.5" ></text>
+</g>
+<g >
+<title>unmap_vmas (85 samples, 0.01%)</title><rect x="1024.3" y="181" width="0.2" height="15.0" fill="rgb(216,108,54)" rx="2" ry="2" />
+<text  x="1027.33" y="191.5" ></text>
+</g>
+<g >
+<title>__lru_cache_add (448 samples, 0.07%)</title><rect x="481.8" y="213" width="0.9" height="15.0" fill="rgb(208,131,7)" rx="2" ry="2" />
+<text  x="484.82" y="223.5" ></text>
+</g>
+<g >
+<title>hrtimer_interrupt (62 samples, 0.01%)</title><rect x="984.2" y="293" width="0.1" height="15.0" fill="rgb(217,118,47)" rx="2" ry="2" />
+<text  x="987.20" y="303.5" ></text>
+</g>
+<g >
+<title>Scores::calcQ (1,193 samples, 0.20%)</title><rect x="315.5" y="389" width="2.4" height="15.0" fill="rgb(207,215,9)" rx="2" ry="2" />
+<text  x="318.53" y="399.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (3,949 samples, 0.65%)</title><rect x="337.1" y="357" width="7.6" height="15.0" fill="rgb(235,229,26)" rx="2" ry="2" />
+<text  x="340.05" y="367.5" ></text>
+</g>
+<g >
+<title>PosteriorEstimator::estimatePEP (237 samples, 0.04%)</title><rect x="28.1" y="405" width="0.5" height="15.0" fill="rgb(233,135,26)" rx="2" ry="2" />
+<text  x="31.12" y="415.5" ></text>
+</g>
+<g >
+<title>unmap_page_range (223 samples, 0.04%)</title><rect x="1119.1" y="229" width="0.4" height="15.0" fill="rgb(249,201,43)" rx="2" ry="2" />
+<text  x="1122.06" y="239.5" ></text>
+</g>
+<g >
+<title>mem_cgroup_try_charge (345 samples, 0.06%)</title><rect x="482.8" y="229" width="0.7" height="15.0" fill="rgb(223,127,27)" rx="2" ry="2" />
+<text  x="485.81" y="239.5" ></text>
+</g>
+<g >
+<title>smp_apic_timer_interrupt (71 samples, 0.01%)</title><rect x="984.2" y="309" width="0.1" height="15.0" fill="rgb(231,199,31)" rx="2" ry="2" />
+<text  x="987.20" y="319.5" ></text>
+</g>
+<g >
+<title>Scores::populateWithPSMs (107 samples, 0.02%)</title><rect x="1125.9" y="437" width="0.2" height="15.0" fill="rgb(222,88,25)" rx="2" ry="2" />
+<text  x="1128.91" y="447.5" ></text>
+</g>
+<g >
+<title>generic_perform_write (284 samples, 0.05%)</title><rect x="30.9" y="165" width="0.5" height="15.0" fill="rgb(225,218,46)" rx="2" ry="2" />
+<text  x="33.86" y="175.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::xsputn (385 samples, 0.06%)</title><rect x="1140.8" y="389" width="0.7" height="15.0" fill="rgb(220,146,38)" rx="2" ry="2" />
+<text  x="1143.79" y="399.5" ></text>
+</g>
+<g >
+<title>ScoreHolder::printPeptide (9,770 samples, 1.61%)</title><rect x="1169.6" y="421" width="19.0" height="15.0" fill="rgb(250,1,43)" rx="2" ry="2" />
+<text  x="1172.61" y="431.5" ></text>
+</g>
+<g >
+<title>jbd2_journal_stop (561 samples, 0.09%)</title><rect x="1160.5" y="133" width="1.1" height="15.0" fill="rgb(241,122,2)" rx="2" ry="2" />
+<text  x="1163.50" y="143.5" ></text>
+</g>
+<g >
+<title>__GI___libc_free (228 samples, 0.04%)</title><rect x="1119.0" y="405" width="0.5" height="15.0" fill="rgb(215,6,12)" rx="2" ry="2" />
+<text  x="1122.05" y="415.5" ></text>
+</g>
+<g >
+<title>hrtimer_interrupt (107 samples, 0.02%)</title><rect x="614.0" y="277" width="0.2" height="15.0" fill="rgb(225,9,12)" rx="2" ry="2" />
+<text  x="616.98" y="287.5" ></text>
+</g>
+<g >
+<title>ext4_file_read_iter (177 samples, 0.03%)</title><rect x="1140.4" y="245" width="0.4" height="15.0" fill="rgb(240,150,45)" rx="2" ry="2" />
+<text  x="1143.42" y="255.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (243 samples, 0.04%)</title><rect x="40.6" y="213" width="0.5" height="15.0" fill="rgb(231,96,26)" rx="2" ry="2" />
+<text  x="43.59" y="223.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (221 samples, 0.04%)</title><rect x="44.7" y="373" width="0.5" height="15.0" fill="rgb(226,86,25)" rx="2" ry="2" />
+<text  x="47.75" y="383.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (85 samples, 0.01%)</title><rect x="43.4" y="341" width="0.2" height="15.0" fill="rgb(231,183,44)" rx="2" ry="2" />
+<text  x="46.41" y="351.5" ></text>
+</g>
+<g >
+<title>__mpn_divrem (161 samples, 0.03%)</title><rect x="1146.6" y="293" width="0.3" height="15.0" fill="rgb(251,94,47)" rx="2" ry="2" />
+<text  x="1149.58" y="303.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (128 samples, 0.02%)</title><rect x="1115.2" y="101" width="0.2" height="15.0" fill="rgb(225,187,33)" rx="2" ry="2" />
+<text  x="1118.16" y="111.5" ></text>
+</g>
+<g >
+<title>SanityCheck::validateDirection (639 samples, 0.11%)</title><rect x="42.3" y="421" width="1.3" height="15.0" fill="rgb(222,1,13)" rx="2" ry="2" />
+<text  x="45.34" y="431.5" ></text>
+</g>
+<g >
+<title>sys_munmap (95 samples, 0.02%)</title><rect x="1024.3" y="245" width="0.2" height="15.0" fill="rgb(214,81,8)" rx="2" ry="2" />
+<text  x="1027.31" y="255.5" ></text>
+</g>
+<g >
+<title>__memmove_avx_unaligned_erms (77 samples, 0.01%)</title><rect x="34.9" y="405" width="0.2" height="15.0" fill="rgb(222,65,30)" rx="2" ry="2" />
+<text  x="37.92" y="415.5" ></text>
+</g>
+<g >
+<title>Normalizer::normalizeSet (153 samples, 0.03%)</title><rect x="1127.0" y="421" width="0.3" height="15.0" fill="rgb(234,213,9)" rx="2" ry="2" />
+<text  x="1130.04" y="431.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (1,179 samples, 0.19%)</title><rect x="1087.2" y="117" width="2.2" height="15.0" fill="rgb(213,104,25)" rx="2" ry="2" />
+<text  x="1090.15" y="127.5" ></text>
+</g>
+<g >
+<title>CrossValidation::postIterationProcessing (639 samples, 0.11%)</title><rect x="42.3" y="437" width="1.3" height="15.0" fill="rgb(240,194,8)" rx="2" ry="2" />
+<text  x="45.34" y="447.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (20,112 samples, 3.31%)</title><rect x="1050.4" y="261" width="39.0" height="15.0" fill="rgb(244,116,25)" rx="2" ry="2" />
+<text  x="1053.40" y="271.5" >std..</text>
+</g>
+<g >
+<title>ext4_file_read_iter (122 samples, 0.02%)</title><rect x="1137.7" y="229" width="0.2" height="15.0" fill="rgb(238,178,18)" rx="2" ry="2" />
+<text  x="1140.71" y="239.5" ></text>
+</g>
+<g >
+<title>CrossValidation::doStep (551,108 samples, 90.68%)</title><rect x="53.8" y="421" width="1070.0" height="15.0" fill="rgb(234,144,48)" rx="2" ry="2" />
+<text  x="56.79" y="431.5" >CrossValidation::doStep</text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.25] (10,817 samples, 1.78%)</title><rect x="1148.5" y="341" width="21.0" height="15.0" fill="rgb(210,133,42)" rx="2" ry="2" />
+<text  x="1151.53" y="351.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (196 samples, 0.03%)</title><rect x="44.8" y="357" width="0.4" height="15.0" fill="rgb(232,23,44)" rx="2" ry="2" />
+<text  x="47.80" y="367.5" ></text>
+</g>
+<g >
+<title>ext4_block_write_begin (101 samples, 0.02%)</title><rect x="1181.7" y="149" width="0.2" height="15.0" fill="rgb(250,96,54)" rx="2" ry="2" />
+<text  x="1184.72" y="159.5" ></text>
+</g>
+<g >
+<title>release_pages (657 samples, 0.11%)</title><rect x="414.9" y="101" width="1.3" height="15.0" fill="rgb(208,90,6)" rx="2" ry="2" />
+<text  x="417.88" y="111.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (10,286 samples, 1.69%)</title><rect x="295.5" y="197" width="20.0" height="15.0" fill="rgb(217,219,22)" rx="2" ry="2" />
+<text  x="298.52" y="207.5" ></text>
+</g>
+<g >
+<title>release_pages (72 samples, 0.01%)</title><rect x="482.5" y="181" width="0.2" height="15.0" fill="rgb(247,215,18)" rx="2" ry="2" />
+<text  x="485.55" y="191.5" ></text>
+</g>
+<g >
+<title>__fdget_pos (90 samples, 0.01%)</title><rect x="1179.0" y="261" width="0.2" height="15.0" fill="rgb(225,47,30)" rx="2" ry="2" />
+<text  x="1182.04" y="271.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;, std::allocator&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; &gt; &gt;::_M_realloc_insert&lt;std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; const&amp;&gt; (58 samples, 0.01%)</title><rect x="1136.3" y="357" width="0.1" height="15.0" fill="rgb(221,212,13)" rx="2" ry="2" />
+<text  x="1139.33" y="367.5" ></text>
+</g>
+<g >
+<title>radix_tree_lookup_slot (146 samples, 0.02%)</title><rect x="1182.4" y="101" width="0.2" height="15.0" fill="rgb(231,211,12)" rx="2" ry="2" />
+<text  x="1185.36" y="111.5" ></text>
+</g>
+<g >
+<title>ext4_dirty_inode (1,968 samples, 0.32%)</title><rect x="1162.1" y="117" width="3.8" height="15.0" fill="rgb(238,203,21)" rx="2" ry="2" />
+<text  x="1165.05" y="127.5" ></text>
+</g>
+<g >
+<title>sys_writev (353 samples, 0.06%)</title><rect x="1140.8" y="309" width="0.7" height="15.0" fill="rgb(246,32,14)" rx="2" ry="2" />
+<text  x="1143.83" y="319.5" ></text>
+</g>
+<g >
+<title>StdvNormalizer::setSet (116 samples, 0.02%)</title><rect x="1127.3" y="421" width="0.3" height="15.0" fill="rgb(233,125,52)" rx="2" ry="2" />
+<text  x="1130.33" y="431.5" ></text>
+</g>
+<g >
+<title>get_mem_cgroup_from_mm (71 samples, 0.01%)</title><rect x="483.0" y="213" width="0.2" height="15.0" fill="rgb(210,208,26)" rx="2" ry="2" />
+<text  x="486.02" y="223.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (107 samples, 0.02%)</title><rect x="1125.0" y="325" width="0.2" height="15.0" fill="rgb(219,47,5)" rx="2" ry="2" />
+<text  x="1128.04" y="335.5" ></text>
+</g>
+<g >
+<title>free_unref_page_list (77 samples, 0.01%)</title><rect x="1119.3" y="165" width="0.2" height="15.0" fill="rgb(225,128,51)" rx="2" ry="2" />
+<text  x="1122.31" y="175.5" ></text>
+</g>
+<g >
+<title>__do_page_cache_readahead (79 samples, 0.01%)</title><rect x="1140.6" y="181" width="0.1" height="15.0" fill="rgb(213,199,44)" rx="2" ry="2" />
+<text  x="1143.58" y="191.5" ></text>
+</g>
+<g >
+<title>XMLInterface::writeXML_Peptides (9,779 samples, 1.61%)</title><rect x="1169.6" y="437" width="19.0" height="15.0" fill="rgb(254,158,46)" rx="2" ry="2" />
+<text  x="1172.59" y="447.5" ></text>
+</g>
+<g >
+<title>CrossValidation::train (551,859 samples, 90.80%)</title><rect x="53.8" y="437" width="1071.4" height="15.0" fill="rgb(225,84,19)" rx="2" ry="2" />
+<text  x="56.79" y="447.5" >CrossValidation::train</text>
+</g>
+<g >
+<title>std::vector&lt;std::pair&lt;double, bool&gt;, std::allocator&lt;std::pair&lt;double, bool&gt; &gt; &gt;::_M_realloc_insert&lt;std::pair&lt;double, bool&gt; &gt; (279 samples, 0.05%)</title><rect x="43.7" y="373" width="0.6" height="15.0" fill="rgb(219,47,13)" rx="2" ry="2" />
+<text  x="46.71" y="383.5" ></text>
+</g>
+<g >
+<title>__GI___printf_fp_l (1,334 samples, 0.22%)</title><rect x="1144.5" y="325" width="2.6" height="15.0" fill="rgb(248,208,21)" rx="2" ry="2" />
+<text  x="1147.52" y="335.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (59 samples, 0.01%)</title><rect x="1125.8" y="341" width="0.1" height="15.0" fill="rgb(247,170,48)" rx="2" ry="2" />
+<text  x="1128.80" y="351.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (74 samples, 0.01%)</title><rect x="53.0" y="197" width="0.1" height="15.0" fill="rgb(237,135,6)" rx="2" ry="2" />
+<text  x="55.98" y="207.5" ></text>
+</g>
+<g >
+<title>handle_mm_fault (268 samples, 0.04%)</title><rect x="1024.8" y="277" width="0.6" height="15.0" fill="rgb(240,40,38)" rx="2" ry="2" />
+<text  x="1027.83" y="287.5" ></text>
+</g>
+<g >
+<title>do_munmap (95 samples, 0.02%)</title><rect x="1024.3" y="213" width="0.2" height="15.0" fill="rgb(252,164,5)" rx="2" ry="2" />
+<text  x="1027.31" y="223.5" ></text>
+</g>
+<g >
+<title>Caller::calculatePSMProb (7,343 samples, 1.21%)</title><rect x="28.1" y="437" width="14.2" height="15.0" fill="rgb(216,102,30)" rx="2" ry="2" />
+<text  x="31.07" y="447.5" ></text>
+</g>
+<g >
+<title>new_sync_write (314 samples, 0.05%)</title><rect x="30.8" y="213" width="0.6" height="15.0" fill="rgb(243,101,41)" rx="2" ry="2" />
+<text  x="33.81" y="223.5" ></text>
+</g>
+<g >
+<title>__dynamic_cast (116 samples, 0.02%)</title><rect x="1147.5" y="357" width="0.2" height="15.0" fill="rgb(209,28,31)" rx="2" ry="2" />
+<text  x="1150.47" y="367.5" ></text>
+</g>
+<g >
+<title>__hrtimer_run_queues (109 samples, 0.02%)</title><rect x="752.1" y="261" width="0.2" height="15.0" fill="rgb(231,79,34)" rx="2" ry="2" />
+<text  x="755.06" y="271.5" ></text>
+</g>
+<g >
+<title>error_entry (88 samples, 0.01%)</title><rect x="1120.3" y="389" width="0.2" height="15.0" fill="rgb(252,80,21)" rx="2" ry="2" />
+<text  x="1123.30" y="399.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (1,248 samples, 0.21%)</title><rect x="413.7" y="261" width="2.5" height="15.0" fill="rgb(236,17,54)" rx="2" ry="2" />
+<text  x="416.74" y="271.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::xsputn (59 samples, 0.01%)</title><rect x="26.7" y="485" width="0.1" height="15.0" fill="rgb(219,31,52)" rx="2" ry="2" />
+<text  x="29.72" y="495.5" ></text>
+</g>
+<g >
+<title>unmap_single_vma (224 samples, 0.04%)</title><rect x="1119.1" y="245" width="0.4" height="15.0" fill="rgb(235,81,7)" rx="2" ry="2" />
+<text  x="1122.05" y="255.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (95 samples, 0.02%)</title><rect x="1024.3" y="277" width="0.2" height="15.0" fill="rgb(210,64,3)" rx="2" ry="2" />
+<text  x="1027.31" y="287.5" ></text>
+</g>
+<g >
+<title>generic_write_end (91 samples, 0.01%)</title><rect x="1141.3" y="165" width="0.1" height="15.0" fill="rgb(242,11,17)" rx="2" ry="2" />
+<text  x="1144.26" y="175.5" ></text>
+</g>
+<g >
+<title>sys_munmap (228 samples, 0.04%)</title><rect x="1119.0" y="325" width="0.5" height="15.0" fill="rgb(222,225,39)" rx="2" ry="2" />
+<text  x="1122.05" y="335.5" ></text>
+</g>
+<g >
+<title>__handle_mm_fault (3,789 samples, 0.62%)</title><rect x="476.7" y="245" width="7.4" height="15.0" fill="rgb(253,148,21)" rx="2" ry="2" />
+<text  x="479.71" y="255.5" ></text>
+</g>
+<g >
+<title>tlb_flush_mmu_free (149 samples, 0.02%)</title><rect x="1119.2" y="213" width="0.3" height="15.0" fill="rgb(246,69,44)" rx="2" ry="2" />
+<text  x="1122.20" y="223.5" ></text>
+</g>
+<g >
+<title>grab_cache_page_write_begin (337 samples, 0.06%)</title><rect x="1182.0" y="149" width="0.7" height="15.0" fill="rgb(214,210,37)" rx="2" ry="2" />
+<text  x="1185.02" y="159.5" ></text>
+</g>
+<g >
+<title>std::ostream::sentry::sentry (69 samples, 0.01%)</title><rect x="1173.0" y="389" width="0.1" height="15.0" fill="rgb(227,149,22)" rx="2" ry="2" />
+<text  x="1176.01" y="399.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (325 samples, 0.05%)</title><rect x="1088.8" y="85" width="0.6" height="15.0" fill="rgb(212,71,5)" rx="2" ry="2" />
+<text  x="1091.81" y="95.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::_M_convert_to_external (6,716 samples, 1.11%)</title><rect x="1175.5" y="357" width="13.1" height="15.0" fill="rgb(221,133,9)" rx="2" ry="2" />
+<text  x="1178.53" y="367.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (513 samples, 0.08%)</title><rect x="24.7" y="485" width="1.0" height="15.0" fill="rgb(227,122,39)" rx="2" ry="2" />
+<text  x="27.70" y="495.5" ></text>
+</g>
+<g >
+<title>ext4_file_write_iter (310 samples, 0.05%)</title><rect x="30.8" y="197" width="0.6" height="15.0" fill="rgb(247,188,43)" rx="2" ry="2" />
+<text  x="33.82" y="207.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (179 samples, 0.03%)</title><rect x="52.8" y="245" width="0.3" height="15.0" fill="rgb(205,168,24)" rx="2" ry="2" />
+<text  x="55.77" y="255.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (111 samples, 0.02%)</title><rect x="1125.7" y="405" width="0.2" height="15.0" fill="rgb(254,46,16)" rx="2" ry="2" />
+<text  x="1128.70" y="415.5" ></text>
+</g>
+<g >
+<title>__alloc_pages_nodemask (139 samples, 0.02%)</title><rect x="1024.9" y="229" width="0.3" height="15.0" fill="rgb(229,0,23)" rx="2" ry="2" />
+<text  x="1027.93" y="239.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (2,874 samples, 0.47%)</title><rect x="35.5" y="389" width="5.6" height="15.0" fill="rgb(227,27,10)" rx="2" ry="2" />
+<text  x="38.48" y="399.5" ></text>
+</g>
+<g >
+<title>std::ostream::operator&lt;&lt; (614 samples, 0.10%)</title><rect x="1140.3" y="421" width="1.2" height="15.0" fill="rgb(247,51,44)" rx="2" ry="2" />
+<text  x="1143.35" y="431.5" ></text>
+</g>
+<g >
+<title>ext4_write_checks (92 samples, 0.02%)</title><rect x="1167.2" y="197" width="0.2" height="15.0" fill="rgb(252,79,13)" rx="2" ry="2" />
+<text  x="1170.17" y="207.5" ></text>
+</g>
+<g >
+<title>__entry_trampoline_start (258 samples, 0.04%)</title><rect x="27.5" y="501" width="0.5" height="15.0" fill="rgb(208,35,6)" rx="2" ry="2" />
+<text  x="30.52" y="511.5" ></text>
+</g>
+<g >
+<title>std::ostream::_M_insert&lt;double&gt; (2,076 samples, 0.34%)</title><rect x="1143.7" y="405" width="4.0" height="15.0" fill="rgb(215,76,33)" rx="2" ry="2" />
+<text  x="1146.71" y="415.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::sync (6,848 samples, 1.13%)</title><rect x="1175.3" y="389" width="13.3" height="15.0" fill="rgb(222,191,9)" rx="2" ry="2" />
+<text  x="1178.28" y="399.5" ></text>
+</g>
+<g >
+<title>copy_page_to_iter (63 samples, 0.01%)</title><rect x="1140.4" y="213" width="0.2" height="15.0" fill="rgb(231,135,3)" rx="2" ry="2" />
+<text  x="1143.44" y="223.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (17,235 samples, 2.84%)</title><rect x="1056.0" y="245" width="33.4" height="15.0" fill="rgb(247,199,44)" rx="2" ry="2" />
+<text  x="1058.99" y="255.5" >st..</text>
+</g>
+<g >
+<title>__GI_munmap (95 samples, 0.02%)</title><rect x="1024.3" y="293" width="0.2" height="15.0" fill="rgb(252,124,11)" rx="2" ry="2" />
+<text  x="1027.31" y="303.5" ></text>
+</g>
+<g >
+<title>__libc_write (6,582 samples, 1.08%)</title><rect x="1175.8" y="325" width="12.7" height="15.0" fill="rgb(219,145,47)" rx="2" ry="2" />
+<text  x="1178.77" y="335.5" ></text>
+</g>
+<g >
+<title>unmap_vmas (1,230 samples, 0.20%)</title><rect x="413.8" y="181" width="2.4" height="15.0" fill="rgb(252,77,29)" rx="2" ry="2" />
+<text  x="416.77" y="191.5" ></text>
+</g>
+<g >
+<title>std::__parallel::sort&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, std::greater&lt;ScoreHolder&gt;, __gnu_parallel::default_parallel_tag&gt; (239 samples, 0.04%)</title><rect x="1124.8" y="405" width="0.4" height="15.0" fill="rgb(243,149,46)" rx="2" ry="2" />
+<text  x="1127.78" y="415.5" ></text>
+</g>
+<g >
+<title>_int_free (142 samples, 0.02%)</title><rect x="1138.3" y="389" width="0.2" height="15.0" fill="rgb(230,102,21)" rx="2" ry="2" />
+<text  x="1141.27" y="399.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (270 samples, 0.04%)</title><rect x="1114.9" y="165" width="0.5" height="15.0" fill="rgb(248,77,53)" rx="2" ry="2" />
+<text  x="1117.89" y="175.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (2,443 samples, 0.40%)</title><rect x="340.0" y="293" width="4.7" height="15.0" fill="rgb(226,11,24)" rx="2" ry="2" />
+<text  x="342.98" y="303.5" ></text>
+</g>
+<g >
+<title>rw_verify_area (239 samples, 0.04%)</title><rect x="1167.6" y="245" width="0.5" height="15.0" fill="rgb(235,224,11)" rx="2" ry="2" />
+<text  x="1170.60" y="255.5" ></text>
+</g>
+<g >
+<title>hack_digit (291 samples, 0.05%)</title><rect x="1174.4" y="309" width="0.5" height="15.0" fill="rgb(211,73,35)" rx="2" ry="2" />
+<text  x="1177.38" y="319.5" ></text>
+</g>
+<g >
+<title>__memmove_avx_unaligned_erms (69 samples, 0.01%)</title><rect x="1172.8" y="373" width="0.2" height="15.0" fill="rgb(226,31,10)" rx="2" ry="2" />
+<text  x="1175.84" y="383.5" ></text>
+</g>
+<g >
+<title>PosteriorEstimator::getQValues (476 samples, 0.08%)</title><rect x="316.2" y="373" width="0.9" height="15.0" fill="rgb(244,140,14)" rx="2" ry="2" />
+<text  x="319.17" y="383.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (638 samples, 0.10%)</title><rect x="1088.2" y="101" width="1.2" height="15.0" fill="rgb(247,225,21)" rx="2" ry="2" />
+<text  x="1091.21" y="111.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (1,171 samples, 0.19%)</title><rect x="342.4" y="229" width="2.3" height="15.0" fill="rgb(207,62,34)" rx="2" ry="2" />
+<text  x="345.44" y="239.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;std::pair&lt;double, bool&gt;, std::allocator&lt;std::pair&lt;double, bool&gt; &gt; &gt;::_M_realloc_insert&lt;std::pair&lt;double, bool&gt; &gt; (1,191 samples, 0.20%)</title><rect x="73.3" y="325" width="2.3" height="15.0" fill="rgb(250,130,49)" rx="2" ry="2" />
+<text  x="76.33" y="335.5" ></text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.25] (806 samples, 0.13%)</title><rect x="1173.5" y="373" width="1.5" height="15.0" fill="rgb(224,181,30)" rx="2" ry="2" />
+<text  x="1176.46" y="383.5" ></text>
+</g>
+<g >
+<title>Caller::run (598,015 samples, 98.40%)</title><rect x="28.1" y="453" width="1161.0" height="15.0" fill="rgb(245,23,16)" rx="2" ry="2" />
+<text  x="31.06" y="463.5" >Caller::run</text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (88 samples, 0.01%)</title><rect x="1126.6" y="341" width="0.1" height="15.0" fill="rgb(228,48,0)" rx="2" ry="2" />
+<text  x="1129.57" y="351.5" ></text>
+</g>
+<g >
+<title>std::basic_streambuf&lt;char, std::char_traits&lt;char&gt; &gt;::xsputn (188 samples, 0.03%)</title><rect x="1142.9" y="389" width="0.4" height="15.0" fill="rgb(214,217,8)" rx="2" ry="2" />
+<text  x="1145.92" y="399.5" ></text>
+</g>
+<g >
+<title>_IO_vfprintf_internal (1,565 samples, 0.26%)</title><rect x="1144.2" y="341" width="3.0" height="15.0" fill="rgb(252,209,20)" rx="2" ry="2" />
+<text  x="1147.15" y="351.5" ></text>
+</g>
+<g >
+<title>_raw_spin_lock (61 samples, 0.01%)</title><rect x="477.4" y="229" width="0.1" height="15.0" fill="rgb(217,27,29)" rx="2" ry="2" />
+<text  x="480.41" y="239.5" ></text>
+</g>
+<g >
+<title>operator&lt;&lt; (414 samples, 0.07%)</title><rect x="29.4" y="405" width="0.8" height="15.0" fill="rgb(234,80,31)" rx="2" ry="2" />
+<text  x="32.39" y="415.5" ></text>
+</g>
+<g >
+<title>__radix_tree_lookup (134 samples, 0.02%)</title><rect x="1182.4" y="85" width="0.2" height="15.0" fill="rgb(219,146,18)" rx="2" ry="2" />
+<text  x="1185.38" y="95.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (29,160 samples, 4.80%)</title><rect x="1032.8" y="309" width="56.6" height="15.0" fill="rgb(216,15,46)" rx="2" ry="2" />
+<text  x="1035.83" y="319.5" >std::..</text>
+</g>
+<g >
+<title>__ext4_handle_dirty_metadata (148 samples, 0.02%)</title><rect x="1163.8" y="53" width="0.2" height="15.0" fill="rgb(206,212,32)" rx="2" ry="2" />
+<text  x="1166.75" y="63.5" ></text>
+</g>
+<g >
+<title>ext4_da_write_end (111 samples, 0.02%)</title><rect x="1141.2" y="181" width="0.2" height="15.0" fill="rgb(234,189,1)" rx="2" ry="2" />
+<text  x="1144.22" y="191.5" ></text>
+</g>
+<g >
+<title>_IO_vfprintf_internal (727 samples, 0.12%)</title><rect x="1173.6" y="341" width="1.4" height="15.0" fill="rgb(206,210,36)" rx="2" ry="2" />
+<text  x="1176.57" y="351.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (134 samples, 0.02%)</title><rect x="1125.0" y="341" width="0.2" height="15.0" fill="rgb(226,99,54)" rx="2" ry="2" />
+<text  x="1127.98" y="351.5" ></text>
+</g>
+<g >
+<title>_int_malloc (186 samples, 0.03%)</title><rect x="51.3" y="341" width="0.3" height="15.0" fill="rgb(224,109,10)" rx="2" ry="2" />
+<text  x="54.28" y="351.5" ></text>
+</g>
+<g >
+<title>ext4_da_write_begin (95 samples, 0.02%)</title><rect x="30.9" y="149" width="0.2" height="15.0" fill="rgb(233,92,41)" rx="2" ry="2" />
+<text  x="33.90" y="159.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (74 samples, 0.01%)</title><rect x="45.0" y="261" width="0.2" height="15.0" fill="rgb(219,199,44)" rx="2" ry="2" />
+<text  x="48.04" y="271.5" ></text>
+</g>
+<g >
+<title>ext4_mark_inode_dirty (64 samples, 0.01%)</title><rect x="31.2" y="85" width="0.1" height="15.0" fill="rgb(205,58,24)" rx="2" ry="2" />
+<text  x="34.22" y="95.5" ></text>
+</g>
+<g >
+<title>__handle_mm_fault (254 samples, 0.04%)</title><rect x="1024.8" y="261" width="0.5" height="15.0" fill="rgb(250,97,26)" rx="2" ry="2" />
+<text  x="1027.84" y="271.5" ></text>
+</g>
+<g >
+<title>Scores::getScoreLabelPairs (3,571 samples, 0.59%)</title><rect x="68.7" y="341" width="7.0" height="15.0" fill="rgb(211,207,43)" rx="2" ry="2" />
+<text  x="71.73" y="351.5" ></text>
+</g>
+<g >
+<title>swapgs_restore_regs_and_return_to_usermode (2,144 samples, 0.35%)</title><rect x="484.5" y="309" width="4.1" height="15.0" fill="rgb(231,35,3)" rx="2" ry="2" />
+<text  x="487.46" y="319.5" ></text>
+</g>
+<g >
+<title>__GI__IO_fflush (565 samples, 0.09%)</title><rect x="30.4" y="389" width="1.1" height="15.0" fill="rgb(210,10,4)" rx="2" ry="2" />
+<text  x="33.42" y="399.5" ></text>
+</g>
+<g >
+<title>generic_perform_write (5,793 samples, 0.95%)</title><rect x="1155.8" y="181" width="11.3" height="15.0" fill="rgb(253,109,53)" rx="2" ry="2" />
+<text  x="1158.81" y="191.5" ></text>
+</g>
+<g >
+<title>apparmor_file_permission (128 samples, 0.02%)</title><rect x="1187.4" y="213" width="0.3" height="15.0" fill="rgb(233,71,16)" rx="2" ry="2" />
+<text  x="1190.43" y="223.5" ></text>
+</g>
+<g >
+<title>clear_page_erms (85 samples, 0.01%)</title><rect x="1123.2" y="277" width="0.1" height="15.0" fill="rgb(213,41,5)" rx="2" ry="2" />
+<text  x="1126.17" y="287.5" ></text>
+</g>
+<g >
+<title>new_sync_write (6,460 samples, 1.06%)</title><rect x="1154.9" y="229" width="12.5" height="15.0" fill="rgb(209,40,44)" rx="2" ry="2" />
+<text  x="1157.91" y="239.5" ></text>
+</g>
+<g >
+<title>std::__parallel::sort&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, std::greater&lt;ScoreHolder&gt;, __gnu_parallel::default_parallel_tag&gt; (251 samples, 0.04%)</title><rect x="44.7" y="389" width="0.5" height="15.0" fill="rgb(232,125,34)" rx="2" ry="2" />
+<text  x="47.69" y="399.5" ></text>
+</g>
+<g >
+<title>BaseSpline::iterativeReweightedLeastSquares (62 samples, 0.01%)</title><rect x="28.3" y="325" width="0.1" height="15.0" fill="rgb(242,91,43)" rx="2" ry="2" />
+<text  x="31.30" y="335.5" ></text>
+</g>
+<g >
+<title>dgemv_ (68,032 samples, 11.19%)</title><rect x="620.3" y="325" width="132.0" height="15.0" fill="rgb(241,58,17)" rx="2" ry="2" />
+<text  x="623.26" y="335.5" >dgemv_</text>
+</g>
+<g >
+<title>operator new (72 samples, 0.01%)</title><rect x="759.5" y="325" width="0.1" height="15.0" fill="rgb(253,156,23)" rx="2" ry="2" />
+<text  x="762.48" y="335.5" ></text>
+</g>
+<g >
+<title>ddot_ (81 samples, 0.01%)</title><rect x="24.0" y="485" width="0.1" height="15.0" fill="rgb(231,72,32)" rx="2" ry="2" />
+<text  x="26.97" y="495.5" ></text>
+</g>
+<g >
+<title>std::__parallel::sort&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, std::greater&lt;ScoreHolder&gt;, __gnu_parallel::default_parallel_tag&gt; (2,996 samples, 0.49%)</title><rect x="1109.6" y="389" width="5.8" height="15.0" fill="rgb(222,112,43)" rx="2" ry="2" />
+<text  x="1112.60" y="399.5" ></text>
+</g>
+<g >
+<title>SetHandler::normalizeFeatures (421 samples, 0.07%)</title><rect x="1126.7" y="437" width="0.9" height="15.0" fill="rgb(223,38,41)" rx="2" ry="2" />
+<text  x="1129.74" y="447.5" ></text>
+</g>
+<g >
+<title>operator new (150 samples, 0.02%)</title><rect x="1135.8" y="357" width="0.3" height="15.0" fill="rgb(216,67,26)" rx="2" ry="2" />
+<text  x="1138.77" y="367.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (354 samples, 0.06%)</title><rect x="25.7" y="485" width="0.7" height="15.0" fill="rgb(233,95,18)" rx="2" ry="2" />
+<text  x="28.70" y="495.5" ></text>
+</g>
+<g >
+<title>__cxxabiv1::__vmi_class_type_info::__do_dyncast (89 samples, 0.01%)</title><rect x="1147.5" y="341" width="0.2" height="15.0" fill="rgb(247,116,8)" rx="2" ry="2" />
+<text  x="1150.52" y="351.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (57 samples, 0.01%)</title><rect x="1125.1" y="277" width="0.1" height="15.0" fill="rgb(234,21,23)" rx="2" ry="2" />
+<text  x="1128.13" y="287.5" ></text>
+</g>
+<g >
+<title>Scores::calcPep (310 samples, 0.05%)</title><rect x="28.1" y="421" width="0.6" height="15.0" fill="rgb(219,229,18)" rx="2" ry="2" />
+<text  x="31.07" y="431.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (3,204 samples, 0.53%)</title><rect x="338.5" y="325" width="6.2" height="15.0" fill="rgb(245,10,19)" rx="2" ry="2" />
+<text  x="341.50" y="335.5" ></text>
+</g>
+<g >
+<title>__mark_inode_dirty (2,080 samples, 0.34%)</title><rect x="1161.9" y="133" width="4.0" height="15.0" fill="rgb(216,165,16)" rx="2" ry="2" />
+<text  x="1164.85" y="143.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (84 samples, 0.01%)</title><rect x="45.0" y="277" width="0.2" height="15.0" fill="rgb(224,73,1)" rx="2" ry="2" />
+<text  x="48.02" y="287.5" ></text>
+</g>
+<g >
+<title>hack_digit (554 samples, 0.09%)</title><rect x="1146.0" y="309" width="1.1" height="15.0" fill="rgb(208,219,23)" rx="2" ry="2" />
+<text  x="1149.03" y="319.5" ></text>
+</g>
+<g >
+<title>std::__unguarded_linear_insert&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, __gnu_cxx::__ops::_Val_comp_iter&lt;OrderScanMassCharge&gt; &gt; (148 samples, 0.02%)</title><rect x="53.1" y="389" width="0.3" height="15.0" fill="rgb(218,178,4)" rx="2" ry="2" />
+<text  x="56.12" y="399.5" ></text>
+</g>
+<g >
+<title>Scores::calcScoresSorted (123,543 samples, 20.33%)</title><rect x="75.7" y="357" width="239.8" height="15.0" fill="rgb(210,162,10)" rx="2" ry="2" />
+<text  x="78.67" y="367.5" >Scores::calcScoresSorted</text>
+</g>
+<g >
+<title>hrtimer_interrupt (118 samples, 0.02%)</title><rect x="752.1" y="277" width="0.2" height="15.0" fill="rgb(223,35,41)" rx="2" ry="2" />
+<text  x="755.06" y="287.5" ></text>
+</g>
+<g >
+<title>__GI___libc_free (152 samples, 0.03%)</title><rect x="1138.3" y="405" width="0.2" height="15.0" fill="rgb(214,171,39)" rx="2" ry="2" />
+<text  x="1141.25" y="415.5" ></text>
+</g>
+<g >
+<title>main (598,015 samples, 98.40%)</title><rect x="28.1" y="469" width="1161.0" height="15.0" fill="rgb(209,12,49)" rx="2" ry="2" />
+<text  x="31.06" y="479.5" >main</text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (883 samples, 0.15%)</title><rect x="343.0" y="213" width="1.7" height="15.0" fill="rgb(239,201,24)" rx="2" ry="2" />
+<text  x="345.99" y="223.5" ></text>
+</g>
+<g >
+<title>DataSet::readPsm (3,479 samples, 0.57%)</title><rect x="1129.7" y="373" width="6.8" height="15.0" fill="rgb(244,46,28)" rx="2" ry="2" />
+<text  x="1132.72" y="383.5" ></text>
+</g>
+<g >
+<title>lru_cache_add_active_or_unevictable (54 samples, 0.01%)</title><rect x="1121.5" y="309" width="0.1" height="15.0" fill="rgb(251,134,9)" rx="2" ry="2" />
+<text  x="1124.51" y="319.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (454 samples, 0.07%)</title><rect x="30.6" y="277" width="0.8" height="15.0" fill="rgb(238,108,39)" rx="2" ry="2" />
+<text  x="33.56" y="287.5" ></text>
+</g>
+<g >
+<title>sys_read (128 samples, 0.02%)</title><rect x="1137.7" y="293" width="0.3" height="15.0" fill="rgb(215,35,14)" rx="2" ry="2" />
+<text  x="1140.70" y="303.5" ></text>
+</g>
+<g >
+<title>ddot_ (113,637 samples, 18.70%)</title><rect x="763.7" y="341" width="220.7" height="15.0" fill="rgb(253,13,48)" rx="2" ry="2" />
+<text  x="766.73" y="351.5" >ddot_</text>
+</g>
+<g >
+<title>new_sync_write (3,935 samples, 0.65%)</title><rect x="1179.6" y="229" width="7.7" height="15.0" fill="rgb(239,40,36)" rx="2" ry="2" />
+<text  x="1182.64" y="239.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (142 samples, 0.02%)</title><rect x="44.9" y="325" width="0.3" height="15.0" fill="rgb(224,195,21)" rx="2" ry="2" />
+<text  x="47.90" y="335.5" ></text>
+</g>
+<g >
+<title>__ext4_journal_stop (75 samples, 0.01%)</title><rect x="1184.2" y="101" width="0.1" height="15.0" fill="rgb(227,51,12)" rx="2" ry="2" />
+<text  x="1187.20" y="111.5" ></text>
+</g>
+<g >
+<title>block_write_end (225 samples, 0.04%)</title><rect x="1165.9" y="133" width="0.4" height="15.0" fill="rgb(227,11,0)" rx="2" ry="2" />
+<text  x="1168.89" y="143.5" ></text>
+</g>
+<g >
+<title>__ext4_journal_start_sb (104 samples, 0.02%)</title><rect x="1162.1" y="101" width="0.2" height="15.0" fill="rgb(228,217,18)" rx="2" ry="2" />
+<text  x="1165.14" y="111.5" ></text>
+</g>
+<g >
+<title>__memmove_avx_unaligned_erms (2,065 samples, 0.34%)</title><rect x="759.7" y="341" width="4.0" height="15.0" fill="rgb(233,175,27)" rx="2" ry="2" />
+<text  x="762.69" y="351.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (348 samples, 0.06%)</title><rect x="40.4" y="229" width="0.7" height="15.0" fill="rgb(223,226,4)" rx="2" ry="2" />
+<text  x="43.39" y="239.5" ></text>
+</g>
+<g >
+<title>__vfs_write (3,951 samples, 0.65%)</title><rect x="1179.6" y="245" width="7.7" height="15.0" fill="rgb(228,221,21)" rx="2" ry="2" />
+<text  x="1182.61" y="255.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_stage2 (106 samples, 0.02%)</title><rect x="1189.4" y="501" width="0.2" height="15.0" fill="rgb(243,0,48)" rx="2" ry="2" />
+<text  x="1192.41" y="511.5" ></text>
+</g>
+<g >
+<title>vfs_write (4,332 samples, 0.71%)</title><rect x="1179.3" y="261" width="8.4" height="15.0" fill="rgb(236,14,10)" rx="2" ry="2" />
+<text  x="1182.29" y="271.5" ></text>
+</g>
+<g >
+<title>__GI___libc_malloc (91 samples, 0.01%)</title><rect x="1136.1" y="325" width="0.2" height="15.0" fill="rgb(234,125,10)" rx="2" ry="2" />
+<text  x="1139.12" y="335.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (57 samples, 0.01%)</title><rect x="45.1" y="245" width="0.1" height="15.0" fill="rgb(212,112,11)" rx="2" ry="2" />
+<text  x="48.07" y="255.5" ></text>
+</g>
+<g >
+<title>ddot_ (3,112 samples, 0.51%)</title><rect x="614.2" y="325" width="6.1" height="15.0" fill="rgb(224,216,27)" rx="2" ry="2" />
+<text  x="617.22" y="335.5" ></text>
+</g>
+<g >
+<title>get_page_from_freelist (71 samples, 0.01%)</title><rect x="1121.4" y="277" width="0.1" height="15.0" fill="rgb(238,167,10)" rx="2" ry="2" />
+<text  x="1124.35" y="287.5" ></text>
+</g>
+<g >
+<title>scheduler_tick (53 samples, 0.01%)</title><rect x="752.2" y="197" width="0.1" height="15.0" fill="rgb(227,97,15)" rx="2" ry="2" />
+<text  x="755.17" y="207.5" ></text>
+</g>
+<g >
+<title>alloc_pages_vma (310 samples, 0.05%)</title><rect x="1120.9" y="309" width="0.6" height="15.0" fill="rgb(219,37,47)" rx="2" ry="2" />
+<text  x="1123.91" y="319.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::overflow (6,813 samples, 1.12%)</title><rect x="1175.4" y="373" width="13.2" height="15.0" fill="rgb(213,4,39)" rx="2" ry="2" />
+<text  x="1178.35" y="383.5" ></text>
+</g>
+<g >
+<title>ext4_da_write_end (147 samples, 0.02%)</title><rect x="31.1" y="149" width="0.3" height="15.0" fill="rgb(249,19,53)" rx="2" ry="2" />
+<text  x="34.09" y="159.5" ></text>
+</g>
+<g >
+<title>Scores::calcQ (10,773 samples, 1.77%)</title><rect x="54.8" y="357" width="20.9" height="15.0" fill="rgb(237,147,45)" rx="2" ry="2" />
+<text  x="57.75" y="367.5" ></text>
+</g>
+<g >
+<title>error_entry (680 samples, 0.11%)</title><rect x="472.8" y="309" width="1.3" height="15.0" fill="rgb(219,172,38)" rx="2" ry="2" />
+<text  x="475.81" y="319.5" ></text>
+</g>
+<g >
+<title>std::basic_ios&lt;char, std::char_traits&lt;char&gt; &gt;::init (84 samples, 0.01%)</title><rect x="30.2" y="389" width="0.2" height="15.0" fill="rgb(226,105,52)" rx="2" ry="2" />
+<text  x="33.20" y="399.5" ></text>
+</g>
+<g >
+<title>radix_tree_lookup_slot (285 samples, 0.05%)</title><rect x="1159.3" y="101" width="0.5" height="15.0" fill="rgb(238,103,47)" rx="2" ry="2" />
+<text  x="1162.27" y="111.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::underflow (143 samples, 0.02%)</title><rect x="1137.7" y="373" width="0.3" height="15.0" fill="rgb(244,17,32)" rx="2" ry="2" />
+<text  x="1140.69" y="383.5" ></text>
+</g>
+<g >
+<title>common_file_perm (107 samples, 0.02%)</title><rect x="1187.5" y="197" width="0.2" height="15.0" fill="rgb(220,43,48)" rx="2" ry="2" />
+<text  x="1190.47" y="207.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (34,449 samples, 5.67%)</title><rect x="248.6" y="325" width="66.9" height="15.0" fill="rgb(236,55,19)" rx="2" ry="2" />
+<text  x="251.63" y="335.5" >std::__..</text>
+</g>
+<g >
+<title>[unknown] (6,337 samples, 1.04%)</title><rect x="15.2" y="501" width="12.3" height="15.0" fill="rgb(236,43,38)" rx="2" ry="2" />
+<text  x="18.21" y="511.5" ></text>
+</g>
+<g >
+<title>Scores::getScoreLabelPairs (429 samples, 0.07%)</title><rect x="1091.5" y="389" width="0.9" height="15.0" fill="rgb(239,161,4)" rx="2" ry="2" />
+<text  x="1094.53" y="399.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (95 samples, 0.02%)</title><rect x="1024.3" y="261" width="0.2" height="15.0" fill="rgb(224,198,35)" rx="2" ry="2" />
+<text  x="1027.31" y="271.5" ></text>
+</g>
+<g >
+<title>__libc_read (222 samples, 0.04%)</title><rect x="1140.4" y="357" width="0.4" height="15.0" fill="rgb(206,157,43)" rx="2" ry="2" />
+<text  x="1143.36" y="367.5" ></text>
+</g>
+<g >
+<title>round_and_return (76 samples, 0.01%)</title><rect x="24.4" y="485" width="0.2" height="15.0" fill="rgb(246,148,20)" rx="2" ry="2" />
+<text  x="27.41" y="495.5" ></text>
+</g>
+<g >
+<title>__memset_avx2_erms (59 samples, 0.01%)</title><rect x="1130.1" y="341" width="0.2" height="15.0" fill="rgb(219,61,27)" rx="2" ry="2" />
+<text  x="1133.14" y="351.5" ></text>
+</g>
+<g >
+<title>ext4_file_write_iter (3,867 samples, 0.64%)</title><rect x="1179.8" y="213" width="7.5" height="15.0" fill="rgb(205,48,18)" rx="2" ry="2" />
+<text  x="1182.75" y="223.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (6,831 samples, 1.12%)</title><rect x="1076.2" y="181" width="13.2" height="15.0" fill="rgb(210,172,37)" rx="2" ry="2" />
+<text  x="1079.18" y="191.5" ></text>
+</g>
+<g >
+<title>std::basic_streambuf&lt;char, std::char_traits&lt;char&gt; &gt;::xsputn (106 samples, 0.02%)</title><rect x="1172.8" y="389" width="0.2" height="15.0" fill="rgb(240,176,33)" rx="2" ry="2" />
+<text  x="1175.77" y="399.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (403 samples, 0.07%)</title><rect x="314.4" y="85" width="0.8" height="15.0" fill="rgb(206,72,5)" rx="2" ry="2" />
+<text  x="317.42" y="95.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt;::operator= (1,479 samples, 0.24%)</title><rect x="1119.5" y="405" width="2.9" height="15.0" fill="rgb(206,220,41)" rx="2" ry="2" />
+<text  x="1122.50" y="415.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (187 samples, 0.03%)</title><rect x="1124.9" y="373" width="0.3" height="15.0" fill="rgb(241,22,37)" rx="2" ry="2" />
+<text  x="1127.88" y="383.5" ></text>
+</g>
+<g >
+<title>ondemand_readahead (80 samples, 0.01%)</title><rect x="1140.6" y="197" width="0.1" height="15.0" fill="rgb(221,35,10)" rx="2" ry="2" />
+<text  x="1143.58" y="207.5" ></text>
+</g>
+<g >
+<title>_int_malloc (99 samples, 0.02%)</title><rect x="1126.8" y="373" width="0.2" height="15.0" fill="rgb(218,4,4)" rx="2" ry="2" />
+<text  x="1129.79" y="383.5" ></text>
+</g>
+<g >
+<title>__entry_trampoline_start (531 samples, 0.09%)</title><rect x="1148.7" y="309" width="1.0" height="15.0" fill="rgb(250,116,23)" rx="2" ry="2" />
+<text  x="1151.68" y="319.5" ></text>
+</g>
+<g >
+<title>sys_write (7,371 samples, 1.21%)</title><rect x="1153.8" y="277" width="14.3" height="15.0" fill="rgb(249,221,30)" rx="2" ry="2" />
+<text  x="1156.79" y="287.5" ></text>
+</g>
+<g >
+<title>munmap_chunk (228 samples, 0.04%)</title><rect x="1119.0" y="389" width="0.5" height="15.0" fill="rgb(216,83,20)" rx="2" ry="2" />
+<text  x="1122.05" y="399.5" ></text>
+</g>
+<g >
+<title>__GI___libc_free (1,248 samples, 0.21%)</title><rect x="413.7" y="325" width="2.5" height="15.0" fill="rgb(233,50,23)" rx="2" ry="2" />
+<text  x="416.74" y="335.5" ></text>
+</g>
+<g >
+<title>alloc_pages_vma (128 samples, 0.02%)</title><rect x="1123.1" y="309" width="0.3" height="15.0" fill="rgb(246,190,21)" rx="2" ry="2" />
+<text  x="1126.13" y="319.5" ></text>
+</g>
+<g >
+<title>handle_mm_fault (250 samples, 0.04%)</title><rect x="1123.0" y="341" width="0.5" height="15.0" fill="rgb(238,219,9)" rx="2" ry="2" />
+<text  x="1126.05" y="351.5" ></text>
+</g>
+<g >
+<title>clear_page_erms (1,293 samples, 0.21%)</title><rect x="478.0" y="197" width="2.5" height="15.0" fill="rgb(242,56,35)" rx="2" ry="2" />
+<text  x="480.96" y="207.5" ></text>
+</g>
+<g >
+<title>generic_perform_write (3,545 samples, 0.58%)</title><rect x="1180.2" y="181" width="6.9" height="15.0" fill="rgb(215,198,14)" rx="2" ry="2" />
+<text  x="1183.19" y="191.5" ></text>
+</g>
+<g >
+<title>std::ostream::_M_insert&lt;double&gt; (966 samples, 0.16%)</title><rect x="1173.4" y="405" width="1.8" height="15.0" fill="rgb(224,52,13)" rx="2" ry="2" />
+<text  x="1176.35" y="415.5" ></text>
+</g>
+<g >
+<title>__mpn_mul_1 (59 samples, 0.01%)</title><rect x="19.8" y="485" width="0.1" height="15.0" fill="rgb(238,214,14)" rx="2" ry="2" />
+<text  x="22.75" y="495.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (137 samples, 0.02%)</title><rect x="1189.1" y="501" width="0.3" height="15.0" fill="rgb(217,78,12)" rx="2" ry="2" />
+<text  x="1192.14" y="511.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (3,596 samples, 0.59%)</title><rect x="337.7" y="341" width="7.0" height="15.0" fill="rgb(230,54,36)" rx="2" ry="2" />
+<text  x="340.74" y="351.5" ></text>
+</g>
+<g >
+<title>__alloc_pages_nodemask (291 samples, 0.05%)</title><rect x="1120.9" y="293" width="0.6" height="15.0" fill="rgb(248,116,32)" rx="2" ry="2" />
+<text  x="1123.93" y="303.5" ></text>
+</g>
+<g >
+<title>_int_malloc (122 samples, 0.02%)</title><rect x="1135.8" y="325" width="0.3" height="15.0" fill="rgb(226,117,46)" rx="2" ry="2" />
+<text  x="1138.82" y="335.5" ></text>
+</g>
+<g >
+<title>jbd2_journal_dirty_metadata (71 samples, 0.01%)</title><rect x="1163.9" y="37" width="0.1" height="15.0" fill="rgb(210,177,41)" rx="2" ry="2" />
+<text  x="1166.89" y="47.5" ></text>
+</g>
+<g >
+<title>security_file_permission (204 samples, 0.03%)</title><rect x="1167.7" y="229" width="0.4" height="15.0" fill="rgb(248,137,37)" rx="2" ry="2" />
+<text  x="1170.67" y="239.5" ></text>
+</g>
+<g >
+<title>mem_cgroup_commit_charge (59 samples, 0.01%)</title><rect x="482.7" y="229" width="0.1" height="15.0" fill="rgb(229,129,9)" rx="2" ry="2" />
+<text  x="485.70" y="239.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::overflow (11,154 samples, 1.84%)</title><rect x="1147.9" y="373" width="21.7" height="15.0" fill="rgb(213,126,19)" rx="2" ry="2" />
+<text  x="1150.91" y="383.5" >s..</text>
+</g>
+<g >
+<title>std::vector&lt;std::vector&lt;Scores, std::allocator&lt;Scores&gt; &gt;, std::allocator&lt;std::vector&lt;Scores, std::allocator&lt;Scores&gt; &gt; &gt; &gt;::_M_realloc_insert&lt;std::vector&lt;Scores, std::allocator&lt;Scores&gt; &gt; const&amp;&gt; (729 samples, 0.12%)</title><rect x="1122.4" y="405" width="1.4" height="15.0" fill="rgb(222,108,21)" rx="2" ry="2" />
+<text  x="1125.37" y="415.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (14,485 samples, 2.38%)</title><rect x="1061.3" y="229" width="28.1" height="15.0" fill="rgb(244,81,48)" rx="2" ry="2" />
+<text  x="1064.32" y="239.5" >s..</text>
+</g>
+<g >
+<title>page_fault (4,506 samples, 0.74%)</title><rect x="475.7" y="309" width="8.7" height="15.0" fill="rgb(245,140,44)" rx="2" ry="2" />
+<text  x="478.68" y="319.5" ></text>
+</g>
+<g >
+<title>std::__parallel::sort&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, std::greater&lt;ScoreHolder&gt;, __gnu_parallel::default_parallel_tag&gt; (126 samples, 0.02%)</title><rect x="34.6" y="389" width="0.3" height="15.0" fill="rgb(228,136,47)" rx="2" ry="2" />
+<text  x="37.65" y="399.5" ></text>
+</g>
+<g >
+<title>ext4_reserve_inode_write (392 samples, 0.06%)</title><rect x="1185.5" y="85" width="0.8" height="15.0" fill="rgb(230,55,50)" rx="2" ry="2" />
+<text  x="1188.54" y="95.5" ></text>
+</g>
+<g >
+<title>__do_page_fault (4,394 samples, 0.72%)</title><rect x="475.8" y="277" width="8.5" height="15.0" fill="rgb(210,1,54)" rx="2" ry="2" />
+<text  x="478.81" y="287.5" ></text>
+</g>
+<g >
+<title>SetHandler::getScanId (285 samples, 0.05%)</title><rect x="1136.5" y="389" width="0.5" height="15.0" fill="rgb(244,183,53)" rx="2" ry="2" />
+<text  x="1139.49" y="399.5" ></text>
+</g>
+<g >
+<title>std::__parallel::sort&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, OrderScanMassCharge, __gnu_parallel::default_parallel_tag&gt; (761 samples, 0.13%)</title><rect x="51.9" y="405" width="1.5" height="15.0" fill="rgb(253,27,38)" rx="2" ry="2" />
+<text  x="54.93" y="415.5" ></text>
+</g>
+<g >
+<title>Scores::merge (300 samples, 0.05%)</title><rect x="1125.3" y="437" width="0.6" height="15.0" fill="rgb(247,75,4)" rx="2" ry="2" />
+<text  x="1128.33" y="447.5" ></text>
+</g>
+<g >
+<title>__radix_tree_lookup (259 samples, 0.04%)</title><rect x="1159.3" y="85" width="0.5" height="15.0" fill="rgb(222,124,46)" rx="2" ry="2" />
+<text  x="1162.32" y="95.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (23,110 samples, 3.80%)</title><rect x="1044.6" y="277" width="44.8" height="15.0" fill="rgb(245,138,52)" rx="2" ry="2" />
+<text  x="1047.58" y="287.5" >std:..</text>
+</g>
+<g >
+<title>XMLInterface::writeXML (652 samples, 0.11%)</title><rect x="1140.3" y="437" width="1.2" height="15.0" fill="rgb(223,34,27)" rx="2" ry="2" />
+<text  x="1143.27" y="447.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (1,999 samples, 0.33%)</title><rect x="1085.6" y="133" width="3.8" height="15.0" fill="rgb(234,102,49)" rx="2" ry="2" />
+<text  x="1088.56" y="143.5" ></text>
+</g>
+<g >
+<title>std::getline&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt; (219 samples, 0.04%)</title><rect x="1137.6" y="389" width="0.4" height="15.0" fill="rgb(246,113,25)" rx="2" ry="2" />
+<text  x="1140.55" y="399.5" ></text>
+</g>
+<g >
+<title>std::_Rb_tree&lt;std::pair&lt;int, double&gt;, std::pair&lt;std::pair&lt;int, double&gt; const, bool&gt;, std::_Select1st&lt;std::pair&lt;std::pair&lt;int, double&gt; const, bool&gt; &gt;, std::less&lt;std::pair&lt;int, double&gt; &gt;, std::allocator&lt;std::pair&lt;std::pair&lt;int, double&gt; const, bool&gt; &gt; &gt;::_M_emplace_hint_unique&lt;std::piecewise_construct_t const&amp;, std::tuple&lt;std::pair&lt;int, double&gt; const&amp;&gt;, std::tuple&lt;&gt; &gt; (143 samples, 0.02%)</title><rect x="1137.1" y="389" width="0.2" height="15.0" fill="rgb(223,123,3)" rx="2" ry="2" />
+<text  x="1140.06" y="399.5" ></text>
+</g>
+<g >
+<title>__ext4_journal_stop (346 samples, 0.06%)</title><rect x="1183.1" y="149" width="0.6" height="15.0" fill="rgb(223,160,50)" rx="2" ry="2" />
+<text  x="1186.05" y="159.5" ></text>
+</g>
+<g >
+<title>unmap_region (1,247 samples, 0.21%)</title><rect x="413.7" y="197" width="2.5" height="15.0" fill="rgb(237,75,38)" rx="2" ry="2" />
+<text  x="416.74" y="207.5" ></text>
+</g>
+<g >
+<title>ext4_file_write_iter (6,362 samples, 1.05%)</title><rect x="1155.1" y="213" width="12.3" height="15.0" fill="rgb(219,107,21)" rx="2" ry="2" />
+<text  x="1158.07" y="223.5" ></text>
+</g>
+<g >
+<title>__ext4_journal_get_write_access (65 samples, 0.01%)</title><rect x="1165.6" y="69" width="0.2" height="15.0" fill="rgb(244,52,22)" rx="2" ry="2" />
+<text  x="1168.65" y="79.5" ></text>
+</g>
+<g >
+<title>Scores::reorderFeatureRows (3,063 samples, 0.50%)</title><rect x="45.7" y="405" width="5.9" height="15.0" fill="rgb(238,123,51)" rx="2" ry="2" />
+<text  x="48.70" y="415.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (97 samples, 0.02%)</title><rect x="1125.7" y="389" width="0.2" height="15.0" fill="rgb(247,127,33)" rx="2" ry="2" />
+<text  x="1128.73" y="399.5" ></text>
+</g>
+<g >
+<title>balance_dirty_pages_ratelimited (81 samples, 0.01%)</title><rect x="1156.2" y="165" width="0.1" height="15.0" fill="rgb(253,184,29)" rx="2" ry="2" />
+<text  x="1159.19" y="175.5" ></text>
+</g>
+<g >
+<title>_int_malloc (267 samples, 0.04%)</title><rect x="43.7" y="325" width="0.5" height="15.0" fill="rgb(237,194,10)" rx="2" ry="2" />
+<text  x="46.72" y="335.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (31,381 samples, 5.16%)</title><rect x="254.6" y="309" width="60.9" height="15.0" fill="rgb(246,213,15)" rx="2" ry="2" />
+<text  x="257.59" y="319.5" >std::_..</text>
+</g>
+<g >
+<title>ext4_do_update_inode (802 samples, 0.13%)</title><rect x="1162.9" y="69" width="1.6" height="15.0" fill="rgb(226,63,7)" rx="2" ry="2" />
+<text  x="1165.91" y="79.5" ></text>
+</g>
+<g >
+<title>hack_digit (63 samples, 0.01%)</title><rect x="24.1" y="485" width="0.1" height="15.0" fill="rgb(216,50,19)" rx="2" ry="2" />
+<text  x="27.12" y="495.5" ></text>
+</g>
+<g >
+<title>__fget_light (94 samples, 0.02%)</title><rect x="1154.0" y="245" width="0.2" height="15.0" fill="rgb(222,155,0)" rx="2" ry="2" />
+<text  x="1157.04" y="255.5" ></text>
+</g>
+<g >
+<title>CrossValidation::trainCpCnPair (383,826 samples, 63.15%)</title><rect x="344.7" y="373" width="745.2" height="15.0" fill="rgb(246,9,17)" rx="2" ry="2" />
+<text  x="347.72" y="383.5" >CrossValidation::trainCpCnPair</text>
+</g>
+<g >
+<title>__GI___libc_write (538 samples, 0.09%)</title><rect x="30.5" y="309" width="1.0" height="15.0" fill="rgb(219,200,42)" rx="2" ry="2" />
+<text  x="33.47" y="319.5" ></text>
+</g>
+<g >
+<title>std::num_put&lt;char, std::ostreambuf_iterator&lt;char, std::char_traits&lt;char&gt; &gt; &gt;::_M_insert_float&lt;double&gt; (944 samples, 0.16%)</title><rect x="1173.4" y="389" width="1.8" height="15.0" fill="rgb(239,8,12)" rx="2" ry="2" />
+<text  x="1176.37" y="399.5" ></text>
+</g>
+<g >
+<title>swapgs_restore_regs_and_return_to_usermode (118 samples, 0.02%)</title><rect x="1089.4" y="325" width="0.3" height="15.0" fill="rgb(216,128,33)" rx="2" ry="2" />
+<text  x="1092.45" y="335.5" ></text>
+</g>
+<g >
+<title>lru_cache_add_active_or_unevictable (464 samples, 0.08%)</title><rect x="481.8" y="229" width="0.9" height="15.0" fill="rgb(222,140,19)" rx="2" ry="2" />
+<text  x="484.79" y="239.5" ></text>
+</g>
+<g >
+<title>boost::unordered::detail::table&lt;boost::unordered::detail::map&lt;std::allocator&lt;std::pair&lt;double* const, double*&gt; &gt;, double*, double*, boost::hash&lt;double*&gt;, std::equal_to&lt;double*&gt; &gt; &gt;::try_emplace_unique&lt;double* const&amp;&gt; (1,004 samples, 0.17%)</title><rect x="49.7" y="389" width="1.9" height="15.0" fill="rgb(228,125,51)" rx="2" ry="2" />
+<text  x="52.70" y="399.5" ></text>
+</g>
+<g >
+<title>ext4_block_write_begin (71 samples, 0.01%)</title><rect x="1140.9" y="165" width="0.2" height="15.0" fill="rgb(213,178,53)" rx="2" ry="2" />
+<text  x="1143.92" y="175.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (161 samples, 0.03%)</title><rect x="1089.1" y="69" width="0.3" height="15.0" fill="rgb(225,214,9)" rx="2" ry="2" />
+<text  x="1092.13" y="79.5" ></text>
+</g>
+<g >
+<title>handle_mm_fault (3,976 samples, 0.65%)</title><rect x="476.6" y="261" width="7.7" height="15.0" fill="rgb(211,182,37)" rx="2" ry="2" />
+<text  x="479.57" y="271.5" ></text>
+</g>
+<g >
+<title>std::use_facet&lt;std::ctype&lt;char&gt; &gt; (136 samples, 0.02%)</title><rect x="1147.5" y="373" width="0.2" height="15.0" fill="rgb(233,220,2)" rx="2" ry="2" />
+<text  x="1150.45" y="383.5" ></text>
+</g>
+<g >
+<title>std::ostream::put (57 samples, 0.01%)</title><rect x="1143.6" y="389" width="0.1" height="15.0" fill="rgb(229,161,35)" rx="2" ry="2" />
+<text  x="1146.59" y="399.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (95 samples, 0.02%)</title><rect x="52.9" y="213" width="0.2" height="15.0" fill="rgb(235,133,43)" rx="2" ry="2" />
+<text  x="55.94" y="223.5" ></text>
+</g>
+<g >
+<title>std::basic_ios&lt;char, std::char_traits&lt;char&gt; &gt;::_M_cache_locale (60 samples, 0.01%)</title><rect x="30.2" y="373" width="0.1" height="15.0" fill="rgb(207,82,0)" rx="2" ry="2" />
+<text  x="33.20" y="383.5" ></text>
+</g>
+<g >
+<title>ScoreHolder::printPSM (14,424 samples, 2.37%)</title><rect x="1141.6" y="421" width="28.0" height="15.0" fill="rgb(209,148,2)" rx="2" ry="2" />
+<text  x="1144.57" y="431.5" >S..</text>
+</g>
+<g >
+<title>std::_Rb_tree_insert_and_rebalance (70 samples, 0.01%)</title><rect x="1137.2" y="373" width="0.1" height="15.0" fill="rgb(229,45,7)" rx="2" ry="2" />
+<text  x="1140.20" y="383.5" ></text>
+</g>
+<g >
+<title>__GI___libc_malloc (72 samples, 0.01%)</title><rect x="759.5" y="309" width="0.1" height="15.0" fill="rgb(251,38,27)" rx="2" ry="2" />
+<text  x="762.48" y="319.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (155 samples, 0.03%)</title><rect x="1115.1" y="117" width="0.3" height="15.0" fill="rgb(234,192,53)" rx="2" ry="2" />
+<text  x="1118.11" y="127.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (107 samples, 0.02%)</title><rect x="45.0" y="293" width="0.2" height="15.0" fill="rgb(215,128,7)" rx="2" ry="2" />
+<text  x="47.97" y="303.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (277 samples, 0.05%)</title><rect x="344.2" y="165" width="0.5" height="15.0" fill="rgb(254,139,8)" rx="2" ry="2" />
+<text  x="347.15" y="175.5" ></text>
+</g>
+<g >
+<title>ext4_dirty_inode (1,176 samples, 0.19%)</title><rect x="1184.0" y="117" width="2.3" height="15.0" fill="rgb(237,96,33)" rx="2" ry="2" />
+<text  x="1187.03" y="127.5" ></text>
+</g>
+<g >
+<title>percolator (607,761 samples, 100.00%)</title><rect x="10.0" y="517" width="1180.0" height="15.0" fill="rgb(236,201,12)" rx="2" ry="2" />
+<text  x="13.00" y="527.5" >percolator</text>
+</g>
+<g >
+<title>do_syscall_64 (5,727 samples, 0.94%)</title><rect x="1176.6" y="293" width="11.1" height="15.0" fill="rgb(213,131,49)" rx="2" ry="2" />
+<text  x="1179.60" y="303.5" ></text>
+</g>
+<g >
+<title>operator new (91 samples, 0.01%)</title><rect x="1136.1" y="341" width="0.2" height="15.0" fill="rgb(206,72,27)" rx="2" ry="2" />
+<text  x="1139.12" y="351.5" ></text>
+</g>
+<g >
+<title>__ext4_get_inode_loc (514 samples, 0.08%)</title><rect x="1164.6" y="69" width="1.0" height="15.0" fill="rgb(248,194,54)" rx="2" ry="2" />
+<text  x="1167.65" y="79.5" ></text>
+</g>
+<g >
+<title>__GI___writev (384 samples, 0.06%)</title><rect x="1140.8" y="357" width="0.7" height="15.0" fill="rgb(246,93,20)" rx="2" ry="2" />
+<text  x="1143.79" y="367.5" ></text>
+</g>
+<g >
+<title>__ext4_journal_stop (596 samples, 0.10%)</title><rect x="1160.4" y="149" width="1.2" height="15.0" fill="rgb(246,199,2)" rx="2" ry="2" />
+<text  x="1163.44" y="159.5" ></text>
+</g>
+<g >
+<title>__generic_file_write_iter (3,710 samples, 0.61%)</title><rect x="1179.9" y="197" width="7.2" height="15.0" fill="rgb(205,43,24)" rx="2" ry="2" />
+<text  x="1182.88" y="207.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::underflow (227 samples, 0.04%)</title><rect x="1140.3" y="389" width="0.5" height="15.0" fill="rgb(254,144,10)" rx="2" ry="2" />
+<text  x="1143.35" y="399.5" ></text>
+</g>
+<g >
+<title>vfs_writev (351 samples, 0.06%)</title><rect x="1140.8" y="277" width="0.7" height="15.0" fill="rgb(217,43,13)" rx="2" ry="2" />
+<text  x="1143.83" y="287.5" ></text>
+</g>
+<g >
+<title>Scores::calcQ (83 samples, 0.01%)</title><rect x="1125.4" y="421" width="0.2" height="15.0" fill="rgb(212,81,40)" rx="2" ry="2" />
+<text  x="1128.43" y="431.5" ></text>
+</g>
+<g >
+<title>do_page_fault (289 samples, 0.05%)</title><rect x="1024.8" y="309" width="0.6" height="15.0" fill="rgb(228,16,18)" rx="2" ry="2" />
+<text  x="1027.79" y="319.5" ></text>
+</g>
+<g >
+<title>iov_iter_advance (74 samples, 0.01%)</title><rect x="1166.5" y="165" width="0.1" height="15.0" fill="rgb(213,104,14)" rx="2" ry="2" />
+<text  x="1169.50" y="175.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (371 samples, 0.06%)</title><rect x="1140.8" y="325" width="0.7" height="15.0" fill="rgb(230,145,53)" rx="2" ry="2" />
+<text  x="1143.80" y="335.5" ></text>
+</g>
+<g >
+<title>prepare_exit_to_usermode (88 samples, 0.01%)</title><rect x="1089.5" y="309" width="0.2" height="15.0" fill="rgb(220,154,12)" rx="2" ry="2" />
+<text  x="1092.51" y="319.5" ></text>
+</g>
+<g >
+<title>__GI_munmap (228 samples, 0.04%)</title><rect x="1119.0" y="373" width="0.5" height="15.0" fill="rgb(226,50,54)" rx="2" ry="2" />
+<text  x="1122.05" y="383.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_ostringstream&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::basic_ostringstream (96 samples, 0.02%)</title><rect x="30.2" y="405" width="0.2" height="15.0" fill="rgb(254,54,46)" rx="2" ry="2" />
+<text  x="33.20" y="415.5" ></text>
+</g>
+<g >
+<title>__handle_mm_fault (521 samples, 0.09%)</title><rect x="1120.8" y="325" width="1.0" height="15.0" fill="rgb(227,226,43)" rx="2" ry="2" />
+<text  x="1123.79" y="335.5" ></text>
+</g>
+<g >
+<title>swapgs_restore_regs_and_return_to_usermode (270 samples, 0.04%)</title><rect x="1121.8" y="389" width="0.6" height="15.0" fill="rgb(212,74,40)" rx="2" ry="2" />
+<text  x="1124.85" y="399.5" ></text>
+</g>
+<g >
+<title>update_process_times (78 samples, 0.01%)</title><rect x="614.0" y="213" width="0.2" height="15.0" fill="rgb(224,147,37)" rx="2" ry="2" />
+<text  x="617.02" y="223.5" ></text>
+</g>
+<g >
+<title>jbd2_journal_stop (316 samples, 0.05%)</title><rect x="1183.1" y="133" width="0.6" height="15.0" fill="rgb(239,147,53)" rx="2" ry="2" />
+<text  x="1186.11" y="143.5" ></text>
+</g>
+<g >
+<title>sys_write (4,522 samples, 0.74%)</title><rect x="1178.9" y="277" width="8.8" height="15.0" fill="rgb(232,21,5)" rx="2" ry="2" />
+<text  x="1181.93" y="287.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (72 samples, 0.01%)</title><rect x="43.4" y="325" width="0.2" height="15.0" fill="rgb(210,114,14)" rx="2" ry="2" />
+<text  x="46.44" y="335.5" ></text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.25] (133 samples, 0.02%)</title><rect x="18.3" y="485" width="0.2" height="15.0" fill="rgb(221,145,15)" rx="2" ry="2" />
+<text  x="21.29" y="495.5" ></text>
+</g>
+<g >
+<title>__memmove_avx_unaligned_erms (364 samples, 0.06%)</title><rect x="68.0" y="325" width="0.7" height="15.0" fill="rgb(215,154,38)" rx="2" ry="2" />
+<text  x="71.00" y="335.5" ></text>
+</g>
+<g >
+<title>vfs_write (7,072 samples, 1.16%)</title><rect x="1154.4" y="261" width="13.7" height="15.0" fill="rgb(253,170,0)" rx="2" ry="2" />
+<text  x="1157.37" y="271.5" ></text>
+</g>
+<g >
+<title>malloc_consolidate (258 samples, 0.04%)</title><rect x="43.7" y="309" width="0.5" height="15.0" fill="rgb(219,28,50)" rx="2" ry="2" />
+<text  x="46.74" y="319.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (469 samples, 0.08%)</title><rect x="52.2" y="341" width="0.9" height="15.0" fill="rgb(249,37,5)" rx="2" ry="2" />
+<text  x="55.21" y="351.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (67 samples, 0.01%)</title><rect x="1126.6" y="325" width="0.1" height="15.0" fill="rgb(234,145,9)" rx="2" ry="2" />
+<text  x="1129.61" y="335.5" ></text>
+</g>
+<g >
+<title>__wake_up (137 samples, 0.02%)</title><rect x="1183.3" y="117" width="0.3" height="15.0" fill="rgb(217,78,53)" rx="2" ry="2" />
+<text  x="1186.30" y="127.5" ></text>
+</g>
+<g >
+<title>security_file_permission (147 samples, 0.02%)</title><rect x="1187.4" y="229" width="0.3" height="15.0" fill="rgb(216,90,29)" rx="2" ry="2" />
+<text  x="1190.40" y="239.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (55 samples, 0.01%)</title><rect x="53.0" y="181" width="0.1" height="15.0" fill="rgb(238,202,22)" rx="2" ry="2" />
+<text  x="56.01" y="191.5" ></text>
+</g>
+<g >
+<title>ext4_reserve_inode_write (660 samples, 0.11%)</title><rect x="1164.6" y="85" width="1.2" height="15.0" fill="rgb(251,211,2)" rx="2" ry="2" />
+<text  x="1167.57" y="95.5" ></text>
+</g>
+<g >
+<title>Scores::calcScoresSorted (11,871 samples, 1.95%)</title><rect x="1092.4" y="405" width="23.0" height="15.0" fill="rgb(241,209,23)" rx="2" ry="2" />
+<text  x="1095.37" y="415.5" >S..</text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (7,917 samples, 1.30%)</title><rect x="300.1" y="181" width="15.3" height="15.0" fill="rgb(230,2,33)" rx="2" ry="2" />
+<text  x="303.07" y="191.5" ></text>
+</g>
+<g >
+<title>pagevec_lru_move_fn (418 samples, 0.07%)</title><rect x="481.9" y="197" width="0.8" height="15.0" fill="rgb(241,213,4)" rx="2" ry="2" />
+<text  x="484.88" y="207.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (90 samples, 0.01%)</title><rect x="1125.1" y="309" width="0.1" height="15.0" fill="rgb(237,143,25)" rx="2" ry="2" />
+<text  x="1128.07" y="319.5" ></text>
+</g>
+<g >
+<title>_int_free (75 samples, 0.01%)</title><rect x="51.7" y="389" width="0.1" height="15.0" fill="rgb(230,85,15)" rx="2" ry="2" />
+<text  x="54.66" y="399.5" ></text>
+</g>
+<g >
+<title>do_page_fault (594 samples, 0.10%)</title><rect x="1120.7" y="373" width="1.1" height="15.0" fill="rgb(251,209,32)" rx="2" ry="2" />
+<text  x="1123.69" y="383.5" ></text>
+</g>
+<g >
+<title>std::ostream::_M_insert&lt;double&gt; (342 samples, 0.06%)</title><rect x="29.5" y="389" width="0.7" height="15.0" fill="rgb(246,33,51)" rx="2" ry="2" />
+<text  x="32.52" y="399.5" ></text>
+</g>
+<g >
+<title>fsnotify (69 samples, 0.01%)</title><rect x="1167.5" y="245" width="0.1" height="15.0" fill="rgb(216,18,2)" rx="2" ry="2" />
+<text  x="1170.46" y="255.5" ></text>
+</g>
+<g >
+<title>generic_write_end (2,480 samples, 0.41%)</title><rect x="1161.6" y="149" width="4.8" height="15.0" fill="rgb(216,97,43)" rx="2" ry="2" />
+<text  x="1164.60" y="159.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (28,214 samples, 4.64%)</title><rect x="260.7" y="293" width="54.8" height="15.0" fill="rgb(225,192,20)" rx="2" ry="2" />
+<text  x="263.74" y="303.5" >std::..</text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (1,839 samples, 0.30%)</title><rect x="37.5" y="325" width="3.6" height="15.0" fill="rgb(230,168,35)" rx="2" ry="2" />
+<text  x="40.49" y="335.5" ></text>
+</g>
+<g >
+<title>jbd2__journal_start (389 samples, 0.06%)</title><rect x="1180.9" y="133" width="0.7" height="15.0" fill="rgb(226,219,14)" rx="2" ry="2" />
+<text  x="1183.89" y="143.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (60 samples, 0.01%)</title><rect x="43.5" y="309" width="0.1" height="15.0" fill="rgb(230,143,34)" rx="2" ry="2" />
+<text  x="46.46" y="319.5" ></text>
+</g>
+<g >
+<title>generic_perform_write (333 samples, 0.05%)</title><rect x="1140.8" y="197" width="0.7" height="15.0" fill="rgb(211,192,30)" rx="2" ry="2" />
+<text  x="1143.85" y="207.5" ></text>
+</g>
+<g >
+<title>__ext4_journal_start_sb (744 samples, 0.12%)</title><rect x="1156.7" y="149" width="1.5" height="15.0" fill="rgb(219,152,43)" rx="2" ry="2" />
+<text  x="1159.71" y="159.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (160 samples, 0.03%)</title><rect x="40.8" y="197" width="0.3" height="15.0" fill="rgb(241,154,47)" rx="2" ry="2" />
+<text  x="43.75" y="207.5" ></text>
+</g>
+<g >
+<title>block_write_end (145 samples, 0.02%)</title><rect x="1186.3" y="133" width="0.3" height="15.0" fill="rgb(238,69,51)" rx="2" ry="2" />
+<text  x="1189.32" y="143.5" ></text>
+</g>
+<g >
+<title>generic_file_read_iter (121 samples, 0.02%)</title><rect x="1137.7" y="213" width="0.2" height="15.0" fill="rgb(225,51,14)" rx="2" ry="2" />
+<text  x="1140.71" y="223.5" ></text>
+</g>
+<g >
+<title>sys_read (188 samples, 0.03%)</title><rect x="1140.4" y="309" width="0.4" height="15.0" fill="rgb(217,126,43)" rx="2" ry="2" />
+<text  x="1143.41" y="319.5" ></text>
+</g>
+<g >
+<title>rw_verify_area (165 samples, 0.03%)</title><rect x="1187.4" y="245" width="0.3" height="15.0" fill="rgb(227,119,8)" rx="2" ry="2" />
+<text  x="1190.37" y="255.5" ></text>
+</g>
+<g >
+<title>__GI_munmap (1,248 samples, 0.21%)</title><rect x="413.7" y="293" width="2.5" height="15.0" fill="rgb(240,79,33)" rx="2" ry="2" />
+<text  x="416.74" y="303.5" ></text>
+</g>
+<g >
+<title>native_irq_return_iret (56 samples, 0.01%)</title><rect x="1122.9" y="389" width="0.1" height="15.0" fill="rgb(241,148,44)" rx="2" ry="2" />
+<text  x="1125.88" y="399.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (320 samples, 0.05%)</title><rect x="1114.8" y="181" width="0.6" height="15.0" fill="rgb(231,97,27)" rx="2" ry="2" />
+<text  x="1117.79" y="191.5" ></text>
+</g>
+<g >
+<title>Scores::calcQ (61 samples, 0.01%)</title><rect x="1123.8" y="421" width="0.1" height="15.0" fill="rgb(247,76,10)" rx="2" ry="2" />
+<text  x="1126.79" y="431.5" ></text>
+</g>
+<g >
+<title>Scores::calcScoresSorted (578 samples, 0.10%)</title><rect x="42.5" y="405" width="1.1" height="15.0" fill="rgb(210,166,1)" rx="2" ry="2" />
+<text  x="45.46" y="415.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;std::pair&lt;double, bool&gt;, std::allocator&lt;std::pair&lt;double, bool&gt; &gt; &gt;::_M_realloc_insert&lt;std::pair&lt;double, bool&gt; &gt; (147 samples, 0.02%)</title><rect x="1092.1" y="373" width="0.3" height="15.0" fill="rgb(249,136,40)" rx="2" ry="2" />
+<text  x="1095.07" y="383.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (173 samples, 0.03%)</title><rect x="344.4" y="149" width="0.3" height="15.0" fill="rgb(209,96,53)" rx="2" ry="2" />
+<text  x="347.35" y="159.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (154 samples, 0.03%)</title><rect x="1124.9" y="357" width="0.3" height="15.0" fill="rgb(216,221,33)" rx="2" ry="2" />
+<text  x="1127.94" y="367.5" ></text>
+</g>
+<g >
+<title>std::__parallel::sort&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, std::greater&lt;ScoreHolder&gt;, __gnu_parallel::default_parallel_tag&gt; (39,122 samples, 6.44%)</title><rect x="239.6" y="341" width="75.9" height="15.0" fill="rgb(223,151,40)" rx="2" ry="2" />
+<text  x="242.56" y="351.5" >std::__p..</text>
+</g>
+<g >
+<title>swapgs_restore_regs_and_return_to_usermode (122 samples, 0.02%)</title><rect x="1123.5" y="389" width="0.3" height="15.0" fill="rgb(232,212,17)" rx="2" ry="2" />
+<text  x="1126.55" y="399.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (185 samples, 0.03%)</title><rect x="314.8" y="69" width="0.4" height="15.0" fill="rgb(219,158,35)" rx="2" ry="2" />
+<text  x="317.83" y="79.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::sync (11,200 samples, 1.84%)</title><rect x="1147.8" y="389" width="21.8" height="15.0" fill="rgb(241,189,30)" rx="2" ry="2" />
+<text  x="1150.82" y="399.5" >s..</text>
+</g>
+<g >
+<title>jbd2_journal_stop (79 samples, 0.01%)</title><rect x="1162.4" y="85" width="0.2" height="15.0" fill="rgb(210,11,15)" rx="2" ry="2" />
+<text  x="1165.42" y="95.5" ></text>
+</g>
+<g >
+<title>unmap_page_range (84 samples, 0.01%)</title><rect x="1024.3" y="149" width="0.2" height="15.0" fill="rgb(208,83,39)" rx="2" ry="2" />
+<text  x="1027.34" y="159.5" ></text>
+</g>
+<g >
+<title>iov_iter_fault_in_readable (52 samples, 0.01%)</title><rect x="1166.9" y="165" width="0.1" height="15.0" fill="rgb(231,61,9)" rx="2" ry="2" />
+<text  x="1169.92" y="175.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (1,453 samples, 0.24%)</title><rect x="312.4" y="117" width="2.9" height="15.0" fill="rgb(221,188,17)" rx="2" ry="2" />
+<text  x="315.43" y="127.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (268 samples, 0.04%)</title><rect x="52.6" y="277" width="0.5" height="15.0" fill="rgb(253,128,44)" rx="2" ry="2" />
+<text  x="55.60" y="287.5" ></text>
+</g>
+<g >
+<title>operator&gt; (61 samples, 0.01%)</title><rect x="24.3" y="485" width="0.1" height="15.0" fill="rgb(230,4,9)" rx="2" ry="2" />
+<text  x="27.29" y="495.5" ></text>
+</g>
+<g >
+<title>BaseSpline::alphaLinearSearchBA (62 samples, 0.01%)</title><rect x="28.3" y="357" width="0.1" height="15.0" fill="rgb(233,221,12)" rx="2" ry="2" />
+<text  x="31.30" y="367.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (9,235 samples, 1.52%)</title><rect x="1150.2" y="293" width="17.9" height="15.0" fill="rgb(230,55,1)" rx="2" ry="2" />
+<text  x="1153.18" y="303.5" ></text>
+</g>
+<g >
+<title>ext4_nonda_switch (98 samples, 0.02%)</title><rect x="1158.6" y="149" width="0.2" height="15.0" fill="rgb(242,157,3)" rx="2" ry="2" />
+<text  x="1161.57" y="159.5" ></text>
+</g>
+<g >
+<title>Scores::createXvalSetsBySpectrum (4,428 samples, 0.73%)</title><rect x="45.2" y="421" width="8.6" height="15.0" fill="rgb(207,31,46)" rx="2" ry="2" />
+<text  x="48.18" y="431.5" ></text>
+</g>
+<g >
+<title>std::ostream::sentry::sentry (63 samples, 0.01%)</title><rect x="1143.3" y="389" width="0.1" height="15.0" fill="rgb(247,72,6)" rx="2" ry="2" />
+<text  x="1146.31" y="399.5" ></text>
+</g>
+<g >
+<title>unmap_region (95 samples, 0.02%)</title><rect x="1024.3" y="197" width="0.2" height="15.0" fill="rgb(245,171,9)" rx="2" ry="2" />
+<text  x="1027.31" y="207.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (33,011 samples, 5.43%)</title><rect x="1025.4" y="325" width="64.0" height="15.0" fill="rgb(217,45,20)" rx="2" ry="2" />
+<text  x="1028.36" y="335.5" >std::__..</text>
+</g>
+<g >
+<title>__pagevec_lru_add_fn (257 samples, 0.04%)</title><rect x="482.0" y="181" width="0.5" height="15.0" fill="rgb(224,197,49)" rx="2" ry="2" />
+<text  x="484.97" y="191.5" ></text>
+</g>
+<g >
+<title>__ext4_journal_stop (117 samples, 0.02%)</title><rect x="1162.3" y="101" width="0.3" height="15.0" fill="rgb(209,91,14)" rx="2" ry="2" />
+<text  x="1165.34" y="111.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (214 samples, 0.04%)</title><rect x="1124.8" y="389" width="0.4" height="15.0" fill="rgb(210,180,39)" rx="2" ry="2" />
+<text  x="1127.83" y="399.5" ></text>
+</g>
+<g >
+<title>dscal_ (3,568 samples, 0.59%)</title><rect x="752.3" y="325" width="7.0" height="15.0" fill="rgb(245,95,2)" rx="2" ry="2" />
+<text  x="755.35" y="335.5" ></text>
+</g>
+<g >
+<title>kmem_cache_alloc (78 samples, 0.01%)</title><rect x="1157.2" y="117" width="0.2" height="15.0" fill="rgb(228,198,17)" rx="2" ry="2" />
+<text  x="1160.22" y="127.5" ></text>
+</g>
+<g >
+<title>std::__ostream_insert&lt;char, std::char_traits&lt;char&gt; &gt; (554 samples, 0.09%)</title><rect x="1142.4" y="405" width="1.1" height="15.0" fill="rgb(222,133,46)" rx="2" ry="2" />
+<text  x="1145.43" y="415.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (113 samples, 0.02%)</title><rect x="34.7" y="373" width="0.2" height="15.0" fill="rgb(254,131,19)" rx="2" ry="2" />
+<text  x="37.67" y="383.5" ></text>
+</g>
+<g >
+<title>syscall_return_via_sysret (416 samples, 0.07%)</title><rect x="1187.7" y="309" width="0.8" height="15.0" fill="rgb(226,113,21)" rx="2" ry="2" />
+<text  x="1190.74" y="319.5" ></text>
+</g>
+<g >
+<title>malloc_consolidate (97 samples, 0.02%)</title><rect x="1126.8" y="357" width="0.2" height="15.0" fill="rgb(248,53,30)" rx="2" ry="2" />
+<text  x="1129.80" y="367.5" ></text>
+</g>
+<g >
+<title>std::__cxx11::basic_string&lt;char, std::char_traits&lt;char&gt;, std::allocator&lt;char&gt; &gt;::_M_assign (126 samples, 0.02%)</title><rect x="1136.1" y="357" width="0.2" height="15.0" fill="rgb(226,10,5)" rx="2" ry="2" />
+<text  x="1139.07" y="367.5" ></text>
+</g>
+<g >
+<title>std::__unguarded_linear_insert&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, __gnu_cxx::__ops::_Val_comp_iter&lt;lexicOrderProb&gt; &gt; (538 samples, 0.09%)</title><rect x="41.1" y="389" width="1.0" height="15.0" fill="rgb(208,63,31)" rx="2" ry="2" />
+<text  x="44.06" y="399.5" ></text>
+</g>
+<g >
+<title>vfs_read (187 samples, 0.03%)</title><rect x="1140.4" y="293" width="0.4" height="15.0" fill="rgb(209,221,44)" rx="2" ry="2" />
+<text  x="1143.41" y="303.5" ></text>
+</g>
+<g >
+<title>iov_iter_copy_from_user_atomic (86 samples, 0.01%)</title><rect x="1186.8" y="165" width="0.2" height="15.0" fill="rgb(252,188,19)" rx="2" ry="2" />
+<text  x="1189.80" y="175.5" ></text>
+</g>
+<g >
+<title>all (607,765 samples, 100%)</title><rect x="10.0" y="533" width="1180.0" height="15.0" fill="rgb(250,64,41)" rx="2" ry="2" />
+<text  x="13.00" y="543.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (15,622 samples, 2.57%)</title><rect x="285.2" y="229" width="30.3" height="15.0" fill="rgb(239,189,50)" rx="2" ry="2" />
+<text  x="288.18" y="239.5" >st..</text>
+</g>
+<g >
+<title>__mark_inode_dirty (86 samples, 0.01%)</title><rect x="31.2" y="117" width="0.1" height="15.0" fill="rgb(232,177,0)" rx="2" ry="2" />
+<text  x="34.18" y="127.5" ></text>
+</g>
+<g >
+<title>new_sync_read (123 samples, 0.02%)</title><rect x="1137.7" y="245" width="0.2" height="15.0" fill="rgb(242,13,15)" rx="2" ry="2" />
+<text  x="1140.70" y="255.5" ></text>
+</g>
+<g >
+<title>__memset_avx2_erms (86 samples, 0.01%)</title><rect x="1089.8" y="357" width="0.1" height="15.0" fill="rgb(225,179,12)" rx="2" ry="2" />
+<text  x="1092.76" y="367.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (193 samples, 0.03%)</title><rect x="1115.0" y="133" width="0.4" height="15.0" fill="rgb(214,204,3)" rx="2" ry="2" />
+<text  x="1118.04" y="143.5" ></text>
+</g>
+<g >
+<title>free_pcppages_bulk (53 samples, 0.01%)</title><rect x="1119.3" y="133" width="0.2" height="15.0" fill="rgb(228,211,6)" rx="2" ry="2" />
+<text  x="1122.35" y="143.5" ></text>
+</g>
+<g >
+<title>BaseSpline::predict (66 samples, 0.01%)</title><rect x="28.2" y="389" width="0.1" height="15.0" fill="rgb(205,216,30)" rx="2" ry="2" />
+<text  x="31.17" y="399.5" ></text>
+</g>
+<g >
+<title>std::__parallel::sort&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, std::greater&lt;ScoreHolder&gt;, __gnu_parallel::default_parallel_tag&gt; (126 samples, 0.02%)</title><rect x="1125.7" y="421" width="0.2" height="15.0" fill="rgb(242,211,26)" rx="2" ry="2" />
+<text  x="1128.67" y="431.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (58 samples, 0.01%)</title><rect x="34.8" y="293" width="0.1" height="15.0" fill="rgb(214,193,0)" rx="2" ry="2" />
+<text  x="37.78" y="303.5" ></text>
+</g>
+<g >
+<title>__vfs_write (316 samples, 0.05%)</title><rect x="30.8" y="229" width="0.6" height="15.0" fill="rgb(229,158,12)" rx="2" ry="2" />
+<text  x="33.81" y="239.5" ></text>
+</g>
+<g >
+<title>alloc_pages_vma (146 samples, 0.02%)</title><rect x="1024.9" y="245" width="0.3" height="15.0" fill="rgb(252,204,29)" rx="2" ry="2" />
+<text  x="1027.92" y="255.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (78 samples, 0.01%)</title><rect x="1125.1" y="293" width="0.1" height="15.0" fill="rgb(247,105,2)" rx="2" ry="2" />
+<text  x="1128.09" y="303.5" ></text>
+</g>
+<g >
+<title>page_add_new_anon_rmap (177 samples, 0.03%)</title><rect x="483.5" y="229" width="0.3" height="15.0" fill="rgb(217,121,34)" rx="2" ry="2" />
+<text  x="486.49" y="239.5" ></text>
+</g>
+<g >
+<title>BaseSpline::roughnessPenaltyIRLS (82 samples, 0.01%)</title><rect x="28.3" y="373" width="0.2" height="15.0" fill="rgb(253,227,26)" rx="2" ry="2" />
+<text  x="31.30" y="383.5" ></text>
+</g>
+<g >
+<title>jbd2__journal_start (613 samples, 0.10%)</title><rect x="1156.9" y="133" width="1.2" height="15.0" fill="rgb(213,76,45)" rx="2" ry="2" />
+<text  x="1159.93" y="143.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (129 samples, 0.02%)</title><rect x="1126.5" y="373" width="0.2" height="15.0" fill="rgb(254,62,27)" rx="2" ry="2" />
+<text  x="1129.49" y="383.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (2,143 samples, 0.35%)</title><rect x="36.9" y="341" width="4.2" height="15.0" fill="rgb(250,129,29)" rx="2" ry="2" />
+<text  x="39.90" y="351.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (1,083 samples, 0.18%)</title><rect x="1113.3" y="277" width="2.1" height="15.0" fill="rgb(224,218,54)" rx="2" ry="2" />
+<text  x="1116.31" y="287.5" ></text>
+</g>
+<g >
+<title>__vfs_write (6,488 samples, 1.07%)</title><rect x="1154.9" y="245" width="12.5" height="15.0" fill="rgb(206,145,34)" rx="2" ry="2" />
+<text  x="1157.85" y="255.5" ></text>
+</g>
+<g >
+<title>PosteriorEstimator::estimate (135 samples, 0.02%)</title><rect x="28.3" y="389" width="0.3" height="15.0" fill="rgb(207,117,11)" rx="2" ry="2" />
+<text  x="31.29" y="399.5" ></text>
+</g>
+<g >
+<title>Scores::calcQ (350 samples, 0.06%)</title><rect x="43.6" y="405" width="0.7" height="15.0" fill="rgb(242,83,12)" rx="2" ry="2" />
+<text  x="46.58" y="415.5" ></text>
+</g>
+<g >
+<title>free_unref_page_commit (330 samples, 0.05%)</title><rect x="415.3" y="69" width="0.7" height="15.0" fill="rgb(241,154,39)" rx="2" ry="2" />
+<text  x="418.34" y="79.5" ></text>
+</g>
+<g >
+<title>get_page_from_freelist (630 samples, 0.10%)</title><rect x="480.5" y="197" width="1.2" height="15.0" fill="rgb(233,172,35)" rx="2" ry="2" />
+<text  x="483.47" y="207.5" ></text>
+</g>
+<g >
+<title>DataSet::~DataSet (294 samples, 0.05%)</title><rect x="1138.0" y="421" width="0.5" height="15.0" fill="rgb(249,163,29)" rx="2" ry="2" />
+<text  x="1140.98" y="431.5" ></text>
+</g>
+<g >
+<title>operator new (89 samples, 0.01%)</title><rect x="42.2" y="389" width="0.1" height="15.0" fill="rgb(206,79,48)" rx="2" ry="2" />
+<text  x="45.16" y="399.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (93 samples, 0.02%)</title><rect x="34.7" y="341" width="0.2" height="15.0" fill="rgb(241,115,38)" rx="2" ry="2" />
+<text  x="37.71" y="351.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (1,572 samples, 0.26%)</title><rect x="1112.4" y="309" width="3.0" height="15.0" fill="rgb(206,129,20)" rx="2" ry="2" />
+<text  x="1115.37" y="319.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt;::_M_realloc_insert&lt;ScoreHolder const&amp;&gt; (162 samples, 0.03%)</title><rect x="53.4" y="405" width="0.3" height="15.0" fill="rgb(215,197,49)" rx="2" ry="2" />
+<text  x="56.41" y="415.5" ></text>
+</g>
+<g >
+<title>do_page_fault (283 samples, 0.05%)</title><rect x="1123.0" y="373" width="0.5" height="15.0" fill="rgb(228,1,21)" rx="2" ry="2" />
+<text  x="1126.00" y="383.5" ></text>
+</g>
+<g >
+<title>__GI___libc_malloc (148 samples, 0.02%)</title><rect x="1135.8" y="341" width="0.3" height="15.0" fill="rgb(234,204,23)" rx="2" ry="2" />
+<text  x="1138.77" y="351.5" ></text>
+</g>
+<g >
+<title>_int_malloc (82 samples, 0.01%)</title><rect x="42.2" y="357" width="0.1" height="15.0" fill="rgb(247,194,33)" rx="2" ry="2" />
+<text  x="45.17" y="367.5" ></text>
+</g>
+<g >
+<title>__mpn_mul_1 (111 samples, 0.02%)</title><rect x="1146.9" y="293" width="0.2" height="15.0" fill="rgb(249,212,29)" rx="2" ry="2" />
+<text  x="1149.89" y="303.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (26,235 samples, 4.32%)</title><rect x="1038.5" y="293" width="50.9" height="15.0" fill="rgb(252,44,45)" rx="2" ry="2" />
+<text  x="1041.51" y="303.5" >std::..</text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::xsputn (58 samples, 0.01%)</title><rect x="1172.7" y="389" width="0.1" height="15.0" fill="rgb(233,229,39)" rx="2" ry="2" />
+<text  x="1175.66" y="399.5" ></text>
+</g>
+<g >
+<title>unmap_single_vma (85 samples, 0.01%)</title><rect x="1024.3" y="165" width="0.2" height="15.0" fill="rgb(226,194,16)" rx="2" ry="2" />
+<text  x="1027.33" y="175.5" ></text>
+</g>
+<g >
+<title>Scores::print (1,313 samples, 0.22%)</title><rect x="29.0" y="421" width="2.5" height="15.0" fill="rgb(230,36,2)" rx="2" ry="2" />
+<text  x="31.97" y="431.5" ></text>
+</g>
+<g >
+<title>line_search (54,243 samples, 8.92%)</title><rect x="984.4" y="341" width="105.3" height="15.0" fill="rgb(213,178,12)" rx="2" ry="2" />
+<text  x="987.36" y="351.5" >line_search</text>
+</g>
+<g >
+<title>PosteriorEstimator::getQValues (497 samples, 0.08%)</title><rect x="1090.6" y="389" width="0.9" height="15.0" fill="rgb(211,211,1)" rx="2" ry="2" />
+<text  x="1093.56" y="399.5" ></text>
+</g>
+<g >
+<title>find_get_entry (381 samples, 0.06%)</title><rect x="1159.1" y="117" width="0.7" height="15.0" fill="rgb(252,32,30)" rx="2" ry="2" />
+<text  x="1162.08" y="127.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (312 samples, 0.05%)</title><rect x="52.5" y="293" width="0.6" height="15.0" fill="rgb(208,115,44)" rx="2" ry="2" />
+<text  x="55.51" y="303.5" ></text>
+</g>
+<g >
+<title>generic_write_checks (57 samples, 0.01%)</title><rect x="1167.2" y="181" width="0.2" height="15.0" fill="rgb(243,212,21)" rx="2" ry="2" />
+<text  x="1170.24" y="191.5" ></text>
+</g>
+<g >
+<title>std::endl&lt;char, std::char_traits&lt;char&gt; &gt; (72 samples, 0.01%)</title><rect x="1143.6" y="405" width="0.1" height="15.0" fill="rgb(220,2,43)" rx="2" ry="2" />
+<text  x="1146.57" y="415.5" ></text>
+</g>
+<g >
+<title>__hrtimer_run_queues (57 samples, 0.01%)</title><rect x="984.2" y="277" width="0.1" height="15.0" fill="rgb(254,117,43)" rx="2" ry="2" />
+<text  x="987.20" y="287.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (2,113 samples, 0.35%)</title><rect x="340.6" y="277" width="4.1" height="15.0" fill="rgb(207,27,44)" rx="2" ry="2" />
+<text  x="343.62" y="287.5" ></text>
+</g>
+<g >
+<title>__GI___libc_free (887 samples, 0.15%)</title><rect x="1138.5" y="405" width="1.8" height="15.0" fill="rgb(235,98,54)" rx="2" ry="2" />
+<text  x="1141.55" y="415.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (467 samples, 0.08%)</title><rect x="30.5" y="293" width="0.9" height="15.0" fill="rgb(235,40,31)" rx="2" ry="2" />
+<text  x="33.54" y="303.5" ></text>
+</g>
+<g >
+<title>apic_timer_interrupt (74 samples, 0.01%)</title><rect x="984.2" y="325" width="0.1" height="15.0" fill="rgb(210,59,11)" rx="2" ry="2" />
+<text  x="987.19" y="335.5" ></text>
+</g>
+<g >
+<title>ext4_da_write_end (1,989 samples, 0.33%)</title><rect x="1182.8" y="165" width="3.9" height="15.0" fill="rgb(228,139,50)" rx="2" ry="2" />
+<text  x="1185.81" y="175.5" ></text>
+</g>
+<g >
+<title>do_munmap (1,248 samples, 0.21%)</title><rect x="413.7" y="213" width="2.5" height="15.0" fill="rgb(211,171,33)" rx="2" ry="2" />
+<text  x="416.74" y="223.5" ></text>
+</g>
+<g >
+<title>ext4_journal_check_start (58 samples, 0.01%)</title><rect x="1156.8" y="133" width="0.1" height="15.0" fill="rgb(245,93,29)" rx="2" ry="2" />
+<text  x="1159.82" y="143.5" ></text>
+</g>
+<g >
+<title>daxpy_ (64,636 samples, 10.64%)</title><rect x="488.7" y="325" width="125.5" height="15.0" fill="rgb(213,27,26)" rx="2" ry="2" />
+<text  x="491.73" y="335.5" >daxpy_</text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (136 samples, 0.02%)</title><rect x="1137.7" y="325" width="0.3" height="15.0" fill="rgb(209,192,37)" rx="2" ry="2" />
+<text  x="1140.69" y="335.5" ></text>
+</g>
+<g >
+<title>__generic_file_write_iter (6,042 samples, 0.99%)</title><rect x="1155.4" y="197" width="11.7" height="15.0" fill="rgb(217,156,40)" rx="2" ry="2" />
+<text  x="1158.35" y="207.5" ></text>
+</g>
+<g >
+<title>__GI___libc_malloc (199 samples, 0.03%)</title><rect x="51.3" y="357" width="0.3" height="15.0" fill="rgb(207,197,21)" rx="2" ry="2" />
+<text  x="54.26" y="367.5" ></text>
+</g>
+<g >
+<title>__GI___libc_malloc (267 samples, 0.04%)</title><rect x="43.7" y="341" width="0.5" height="15.0" fill="rgb(222,109,2)" rx="2" ry="2" />
+<text  x="46.72" y="351.5" ></text>
+</g>
+<g >
+<title>DataSet::fillScores (107 samples, 0.02%)</title><rect x="1125.9" y="421" width="0.2" height="15.0" fill="rgb(228,146,12)" rx="2" ry="2" />
+<text  x="1128.91" y="431.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (1,248 samples, 0.21%)</title><rect x="413.7" y="277" width="2.5" height="15.0" fill="rgb(239,195,2)" rx="2" ry="2" />
+<text  x="416.74" y="287.5" ></text>
+</g>
+<g >
+<title>tlb_flush_mmu_free (727 samples, 0.12%)</title><rect x="414.7" y="133" width="1.5" height="15.0" fill="rgb(239,140,11)" rx="2" ry="2" />
+<text  x="417.75" y="143.5" ></text>
+</g>
+<g >
+<title>__GI___printf_fp_l (161 samples, 0.03%)</title><rect x="29.7" y="309" width="0.3" height="15.0" fill="rgb(206,166,11)" rx="2" ry="2" />
+<text  x="32.73" y="319.5" ></text>
+</g>
+<g >
+<title>Scores::generateNegativeTrainingSet (1,415 samples, 0.23%)</title><rect x="1115.4" y="405" width="2.8" height="15.0" fill="rgb(238,56,13)" rx="2" ry="2" />
+<text  x="1118.42" y="415.5" ></text>
+</g>
+<g >
+<title>__wake_up_common_lock (132 samples, 0.02%)</title><rect x="1183.3" y="101" width="0.3" height="15.0" fill="rgb(209,151,22)" rx="2" ry="2" />
+<text  x="1186.31" y="111.5" ></text>
+</g>
+<g >
+<title>__libc_read (140 samples, 0.02%)</title><rect x="1137.7" y="341" width="0.3" height="15.0" fill="rgb(245,68,4)" rx="2" ry="2" />
+<text  x="1140.69" y="351.5" ></text>
+</g>
+<g >
+<title>sys_write (363 samples, 0.06%)</title><rect x="30.7" y="261" width="0.7" height="15.0" fill="rgb(211,169,3)" rx="2" ry="2" />
+<text  x="33.74" y="271.5" ></text>
+</g>
+<g >
+<title>do_syscall_64 (133 samples, 0.02%)</title><rect x="1137.7" y="309" width="0.3" height="15.0" fill="rgb(224,151,5)" rx="2" ry="2" />
+<text  x="1140.69" y="319.5" ></text>
+</g>
+<g >
+<title>ext4_da_write_begin (1,168 samples, 0.19%)</title><rect x="1180.5" y="165" width="2.3" height="15.0" fill="rgb(244,116,28)" rx="2" ry="2" />
+<text  x="1183.54" y="175.5" ></text>
+</g>
+<g >
+<title>find_vma (65 samples, 0.01%)</title><rect x="476.4" y="261" width="0.2" height="15.0" fill="rgb(209,12,13)" rx="2" ry="2" />
+<text  x="479.44" y="271.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (5,753 samples, 0.95%)</title><rect x="304.2" y="165" width="11.2" height="15.0" fill="rgb(233,107,16)" rx="2" ry="2" />
+<text  x="307.23" y="175.5" ></text>
+</g>
+<g >
+<title>native_irq_return_iret (774 samples, 0.13%)</title><rect x="474.2" y="309" width="1.5" height="15.0" fill="rgb(243,1,0)" rx="2" ry="2" />
+<text  x="477.17" y="319.5" ></text>
+</g>
+<g >
+<title>[percolator] (91 samples, 0.01%)</title><rect x="15.0" y="501" width="0.2" height="15.0" fill="rgb(207,64,29)" rx="2" ry="2" />
+<text  x="18.03" y="511.5" ></text>
+</g>
+<g >
+<title>ext4_do_update_inode (481 samples, 0.08%)</title><rect x="1184.5" y="69" width="1.0" height="15.0" fill="rgb(233,22,21)" rx="2" ry="2" />
+<text  x="1187.53" y="79.5" ></text>
+</g>
+<g >
+<title>std::__basic_file&lt;char&gt;::xsgetn (222 samples, 0.04%)</title><rect x="1140.4" y="373" width="0.4" height="15.0" fill="rgb(238,39,2)" rx="2" ry="2" />
+<text  x="1143.36" y="383.5" ></text>
+</g>
+<g >
+<title>__GI___libc_free (130 samples, 0.02%)</title><rect x="1188.9" y="405" width="0.2" height="15.0" fill="rgb(207,57,33)" rx="2" ry="2" />
+<text  x="1191.88" y="415.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (1,790 samples, 0.29%)</title><rect x="341.2" y="261" width="3.5" height="15.0" fill="rgb(231,36,28)" rx="2" ry="2" />
+<text  x="344.24" y="271.5" ></text>
+</g>
+<g >
+<title>generic_write_end (1,506 samples, 0.25%)</title><rect x="1183.7" y="149" width="3.0" height="15.0" fill="rgb(248,58,25)" rx="2" ry="2" />
+<text  x="1186.73" y="159.5" ></text>
+</g>
+<g >
+<title>Scores::getScoreLabelPairs (392 samples, 0.06%)</title><rect x="317.1" y="373" width="0.8" height="15.0" fill="rgb(250,180,29)" rx="2" ry="2" />
+<text  x="320.09" y="383.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::xsputn (96 samples, 0.02%)</title><rect x="1142.7" y="389" width="0.2" height="15.0" fill="rgb(209,127,15)" rx="2" ry="2" />
+<text  x="1145.74" y="399.5" ></text>
+</g>
+<g >
+<title>free_pages_and_swap_cache (726 samples, 0.12%)</title><rect x="414.7" y="117" width="1.5" height="15.0" fill="rgb(232,92,46)" rx="2" ry="2" />
+<text  x="417.75" y="127.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (12,961 samples, 2.13%)</title><rect x="290.3" y="213" width="25.2" height="15.0" fill="rgb(247,143,26)" rx="2" ry="2" />
+<text  x="293.34" y="223.5" >s..</text>
+</g>
+<g >
+<title>round_away (68 samples, 0.01%)</title><rect x="1134.9" y="325" width="0.1" height="15.0" fill="rgb(254,169,40)" rx="2" ry="2" />
+<text  x="1137.89" y="335.5" ></text>
+</g>
+<g >
+<title>__libc_write (10,745 samples, 1.77%)</title><rect x="1148.7" y="325" width="20.8" height="15.0" fill="rgb(245,135,20)" rx="2" ry="2" />
+<text  x="1151.66" y="335.5" ></text>
+</g>
+<g >
+<title>SetHandler::readPSMs (5,367 samples, 0.88%)</title><rect x="1127.6" y="405" width="10.4" height="15.0" fill="rgb(209,201,10)" rx="2" ry="2" />
+<text  x="1130.56" y="415.5" ></text>
+</g>
+<g >
+<title>__wake_up (245 samples, 0.04%)</title><rect x="1160.8" y="117" width="0.5" height="15.0" fill="rgb(217,8,19)" rx="2" ry="2" />
+<text  x="1163.85" y="127.5" ></text>
+</g>
+<g >
+<title>_raw_spin_lock_irqsave (58 samples, 0.01%)</title><rect x="1161.2" y="85" width="0.1" height="15.0" fill="rgb(206,121,33)" rx="2" ry="2" />
+<text  x="1164.16" y="95.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (3,218 samples, 0.53%)</title><rect x="1083.2" y="149" width="6.2" height="15.0" fill="rgb(222,86,21)" rx="2" ry="2" />
+<text  x="1086.20" y="159.5" ></text>
+</g>
+<g >
+<title>__GI___libc_malloc (99 samples, 0.02%)</title><rect x="1126.8" y="389" width="0.2" height="15.0" fill="rgb(222,71,42)" rx="2" ry="2" />
+<text  x="1129.79" y="399.5" ></text>
+</g>
+<g >
+<title>__handle_mm_fault (236 samples, 0.04%)</title><rect x="1123.1" y="325" width="0.4" height="15.0" fill="rgb(241,71,17)" rx="2" ry="2" />
+<text  x="1126.06" y="335.5" ></text>
+</g>
+<g >
+<title>CrossValidation::preIterationSetup (5,258 samples, 0.87%)</title><rect x="43.6" y="437" width="10.2" height="15.0" fill="rgb(240,203,6)" rx="2" ry="2" />
+<text  x="46.58" y="447.5" ></text>
+</g>
+<g >
+<title>smp_apic_timer_interrupt (122 samples, 0.02%)</title><rect x="614.0" y="293" width="0.2" height="15.0" fill="rgb(248,108,11)" rx="2" ry="2" />
+<text  x="616.96" y="303.5" ></text>
+</g>
+<g >
+<title>Scores::calcQ (61 samples, 0.01%)</title><rect x="42.3" y="405" width="0.2" height="15.0" fill="rgb(208,120,28)" rx="2" ry="2" />
+<text  x="45.34" y="415.5" ></text>
+</g>
+<g >
+<title>file_update_time (53 samples, 0.01%)</title><rect x="1180.1" y="181" width="0.1" height="15.0" fill="rgb(222,98,38)" rx="2" ry="2" />
+<text  x="1183.09" y="191.5" ></text>
+</g>
+<g >
+<title>std::num_put&lt;char, std::ostreambuf_iterator&lt;char, std::char_traits&lt;char&gt; &gt; &gt;::_M_insert_float&lt;double&gt; (2,046 samples, 0.34%)</title><rect x="1143.7" y="389" width="4.0" height="15.0" fill="rgb(209,84,43)" rx="2" ry="2" />
+<text  x="1146.75" y="399.5" ></text>
+</g>
+<g >
+<title>handle_mm_fault (538 samples, 0.09%)</title><rect x="1120.8" y="341" width="1.0" height="15.0" fill="rgb(209,65,34)" rx="2" ry="2" />
+<text  x="1123.78" y="351.5" ></text>
+</g>
+<g >
+<title>Scores::calcQ (1,253 samples, 0.21%)</title><rect x="1089.9" y="405" width="2.5" height="15.0" fill="rgb(240,204,43)" rx="2" ry="2" />
+<text  x="1092.94" y="415.5" ></text>
+</g>
+<g >
+<title>SetHandler::~SetHandler (1,181 samples, 0.19%)</title><rect x="1138.0" y="437" width="2.3" height="15.0" fill="rgb(205,109,5)" rx="2" ry="2" />
+<text  x="1140.98" y="447.5" ></text>
+</g>
+<g >
+<title>L2_SVM_MFN (383,727 samples, 63.14%)</title><rect x="344.7" y="357" width="745.0" height="15.0" fill="rgb(209,38,0)" rx="2" ry="2" />
+<text  x="347.72" y="367.5" >L2_SVM_MFN</text>
+</g>
+<g >
+<title>free_unref_page_commit (62 samples, 0.01%)</title><rect x="1119.3" y="149" width="0.2" height="15.0" fill="rgb(245,97,9)" rx="2" ry="2" />
+<text  x="1122.33" y="159.5" ></text>
+</g>
+<g >
+<title>[libstdc++.so.6.0.25] (1,736 samples, 0.29%)</title><rect x="1143.9" y="373" width="3.4" height="15.0" fill="rgb(254,152,41)" rx="2" ry="2" />
+<text  x="1146.93" y="383.5" ></text>
+</g>
+<g >
+<title>std::__ostream_insert&lt;char, std::char_traits&lt;char&gt; &gt; (102 samples, 0.02%)</title><rect x="26.4" y="485" width="0.2" height="15.0" fill="rgb(235,89,2)" rx="2" ry="2" />
+<text  x="29.39" y="495.5" ></text>
+</g>
+<g >
+<title>from_kuid (57 samples, 0.01%)</title><rect x="1164.3" y="53" width="0.1" height="15.0" fill="rgb(238,114,51)" rx="2" ry="2" />
+<text  x="1167.27" y="63.5" ></text>
+</g>
+<g >
+<title>apparmor_file_permission (156 samples, 0.03%)</title><rect x="1167.7" y="213" width="0.3" height="15.0" fill="rgb(207,221,22)" rx="2" ry="2" />
+<text  x="1170.74" y="223.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (232 samples, 0.04%)</title><rect x="1115.0" y="149" width="0.4" height="15.0" fill="rgb(214,124,44)" rx="2" ry="2" />
+<text  x="1117.96" y="159.5" ></text>
+</g>
+<g >
+<title>do_munmap (228 samples, 0.04%)</title><rect x="1119.0" y="293" width="0.5" height="15.0" fill="rgb(225,202,1)" rx="2" ry="2" />
+<text  x="1122.05" y="303.5" ></text>
+</g>
+<g >
+<title>std::basic_filebuf&lt;char, std::char_traits&lt;char&gt; &gt;::_M_convert_to_external (11,009 samples, 1.81%)</title><rect x="1148.2" y="357" width="21.4" height="15.0" fill="rgb(219,126,15)" rx="2" ry="2" />
+<text  x="1151.19" y="367.5" >s..</text>
+</g>
+<g >
+<title>__do_page_fault (276 samples, 0.05%)</title><rect x="1123.0" y="357" width="0.5" height="15.0" fill="rgb(242,45,1)" rx="2" ry="2" />
+<text  x="1126.00" y="367.5" ></text>
+</g>
+<g >
+<title>ext4_da_write_begin (182 samples, 0.03%)</title><rect x="1140.9" y="181" width="0.3" height="15.0" fill="rgb(216,71,46)" rx="2" ry="2" />
+<text  x="1143.87" y="191.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (175 samples, 0.03%)</title><rect x="44.8" y="341" width="0.4" height="15.0" fill="rgb(237,60,25)" rx="2" ry="2" />
+<text  x="47.84" y="351.5" ></text>
+</g>
+<g >
+<title>std::vector&lt;PSMDescription*, std::allocator&lt;PSMDescription*&gt; &gt;::_M_realloc_insert&lt;PSMDescription* const&amp;&gt; (113 samples, 0.02%)</title><rect x="42.1" y="405" width="0.2" height="15.0" fill="rgb(217,66,17)" rx="2" ry="2" />
+<text  x="45.11" y="415.5" ></text>
+</g>
+<g >
+<title>entry_SYSCALL_64_after_hwframe (228 samples, 0.04%)</title><rect x="1119.0" y="357" width="0.5" height="15.0" fill="rgb(241,182,15)" rx="2" ry="2" />
+<text  x="1122.05" y="367.5" ></text>
+</g>
+<g >
+<title>Scores::getScoreLabelPairs (295 samples, 0.05%)</title><rect x="43.7" y="389" width="0.6" height="15.0" fill="rgb(226,135,14)" rx="2" ry="2" />
+<text  x="46.68" y="399.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;Delta*, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::less&lt;Delta&gt; &gt; &gt; (9,159 samples, 1.51%)</title><rect x="1071.7" y="197" width="17.7" height="15.0" fill="rgb(208,41,28)" rx="2" ry="2" />
+<text  x="1074.67" y="207.5" ></text>
+</g>
+<g >
+<title>PSMDescription::printProteins (134 samples, 0.02%)</title><rect x="29.0" y="405" width="0.3" height="15.0" fill="rgb(208,95,29)" rx="2" ry="2" />
+<text  x="32.02" y="415.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (237 samples, 0.04%)</title><rect x="1126.3" y="405" width="0.4" height="15.0" fill="rgb(251,103,35)" rx="2" ry="2" />
+<text  x="1129.28" y="415.5" ></text>
+</g>
+<g >
+<title>__do_page_fault (585 samples, 0.10%)</title><rect x="1120.7" y="357" width="1.1" height="15.0" fill="rgb(221,33,25)" rx="2" ry="2" />
+<text  x="1123.69" y="367.5" ></text>
+</g>
+<g >
+<title>__fdget_pos (133 samples, 0.02%)</title><rect x="1154.0" y="261" width="0.2" height="15.0" fill="rgb(253,55,4)" rx="2" ry="2" />
+<text  x="1156.97" y="271.5" ></text>
+</g>
+<g >
+<title>vm_munmap (1,248 samples, 0.21%)</title><rect x="413.7" y="229" width="2.5" height="15.0" fill="rgb(253,137,14)" rx="2" ry="2" />
+<text  x="416.74" y="239.5" ></text>
+</g>
+<g >
+<title>Scores::calcScoresSorted (474 samples, 0.08%)</title><rect x="44.3" y="405" width="0.9" height="15.0" fill="rgb(210,202,7)" rx="2" ry="2" />
+<text  x="47.26" y="415.5" ></text>
+</g>
+<g >
+<title>_IO_new_file_write (542 samples, 0.09%)</title><rect x="30.5" y="325" width="1.0" height="15.0" fill="rgb(245,123,48)" rx="2" ry="2" />
+<text  x="33.46" y="335.5" ></text>
+</g>
+<g >
+<title>__alloc_pages_nodemask (2,096 samples, 0.34%)</title><rect x="477.6" y="213" width="4.1" height="15.0" fill="rgb(206,156,15)" rx="2" ry="2" />
+<text  x="480.63" y="223.5" ></text>
+</g>
+<g >
+<title>std::_Rb_tree&lt;std::pair&lt;int, double&gt;, std::pair&lt;std::pair&lt;int, double&gt; const, bool&gt;, std::_Select1st&lt;std::pair&lt;std::pair&lt;int, double&gt; const, bool&gt; &gt;, std::less&lt;std::pair&lt;int, double&gt; &gt;, std::allocator&lt;std::pair&lt;std::pair&lt;int, double&gt; const, bool&gt; &gt; &gt;::_M_erase (104 samples, 0.02%)</title><rect x="1137.3" y="389" width="0.2" height="15.0" fill="rgb(217,165,5)" rx="2" ry="2" />
+<text  x="1140.34" y="399.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (392 samples, 0.06%)</title><rect x="1114.7" y="197" width="0.7" height="15.0" fill="rgb(249,181,27)" rx="2" ry="2" />
+<text  x="1117.65" y="207.5" ></text>
+</g>
+<g >
+<title>__getblk_gfp (244 samples, 0.04%)</title><rect x="1165.0" y="53" width="0.5" height="15.0" fill="rgb(249,191,9)" rx="2" ry="2" />
+<text  x="1168.05" y="63.5" ></text>
+</g>
+<g >
+<title>__mark_inode_dirty (1,254 samples, 0.21%)</title><rect x="1183.9" y="133" width="2.4" height="15.0" fill="rgb(205,96,37)" rx="2" ry="2" />
+<text  x="1186.89" y="143.5" ></text>
+</g>
+<g >
+<title>__alloc_pages_nodemask (120 samples, 0.02%)</title><rect x="1123.1" y="293" width="0.3" height="15.0" fill="rgb(208,89,7)" rx="2" ry="2" />
+<text  x="1126.14" y="303.5" ></text>
+</g>
+<g >
+<title>sys_munmap (1,248 samples, 0.21%)</title><rect x="413.7" y="245" width="2.5" height="15.0" fill="rgb(235,3,16)" rx="2" ry="2" />
+<text  x="416.74" y="255.5" ></text>
+</g>
+<g >
+<title>CGLS (204,859 samples, 33.71%)</title><rect x="361.9" y="341" width="397.8" height="15.0" fill="rgb(247,56,47)" rx="2" ry="2" />
+<text  x="364.93" y="351.5" >CGLS</text>
+</g>
+<g >
+<title>__wake_up_common_lock (221 samples, 0.04%)</title><rect x="1160.9" y="101" width="0.4" height="15.0" fill="rgb(249,85,45)" rx="2" ry="2" />
+<text  x="1163.88" y="111.5" ></text>
+</g>
+<g >
+<title>__memmove_avx_unaligned_erms (138 samples, 0.02%)</title><rect x="19.4" y="485" width="0.2" height="15.0" fill="rgb(221,85,45)" rx="2" ry="2" />
+<text  x="22.36" y="495.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (475 samples, 0.08%)</title><rect x="40.1" y="245" width="1.0" height="15.0" fill="rgb(229,19,41)" rx="2" ry="2" />
+<text  x="43.14" y="255.5" ></text>
+</g>
+<g >
+<title>_int_free (887 samples, 0.15%)</title><rect x="1138.5" y="389" width="1.8" height="15.0" fill="rgb(226,132,52)" rx="2" ry="2" />
+<text  x="1141.55" y="399.5" ></text>
+</g>
+<g >
+<title>__GI___printf_fp_l (633 samples, 0.10%)</title><rect x="1173.7" y="325" width="1.2" height="15.0" fill="rgb(221,41,2)" rx="2" ry="2" />
+<text  x="1176.72" y="335.5" ></text>
+</g>
+<g >
+<title>munmap_chunk (1,248 samples, 0.21%)</title><rect x="413.7" y="309" width="2.5" height="15.0" fill="rgb(243,4,33)" rx="2" ry="2" />
+<text  x="416.74" y="319.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (97 samples, 0.02%)</title><rect x="43.4" y="357" width="0.2" height="15.0" fill="rgb(247,87,2)" rx="2" ry="2" />
+<text  x="46.39" y="367.5" ></text>
+</g>
+<g >
+<title>_start (598,015 samples, 98.40%)</title><rect x="28.1" y="501" width="1161.0" height="15.0" fill="rgb(253,134,41)" rx="2" ry="2" />
+<text  x="31.06" y="511.5" >_start</text>
+</g>
+<g >
+<title>add_transaction_credits (60 samples, 0.01%)</title><rect x="1158.0" y="101" width="0.1" height="15.0" fill="rgb(234,52,38)" rx="2" ry="2" />
+<text  x="1161.00" y="111.5" ></text>
+</g>
+<g >
+<title>grab_cache_page_write_begin (71 samples, 0.01%)</title><rect x="1141.1" y="165" width="0.1" height="15.0" fill="rgb(233,185,38)" rx="2" ry="2" />
+<text  x="1144.06" y="175.5" ></text>
+</g>
+<g >
+<title>file_update_time (76 samples, 0.01%)</title><rect x="1155.7" y="181" width="0.1" height="15.0" fill="rgb(206,115,1)" rx="2" ry="2" />
+<text  x="1158.66" y="191.5" ></text>
+</g>
+<g >
+<title>__GI_____strtod_l_internal (2,699 samples, 0.44%)</title><rect x="1130.3" y="357" width="5.2" height="15.0" fill="rgb(247,2,50)" rx="2" ry="2" />
+<text  x="1133.27" y="367.5" ></text>
+</g>
+<g >
+<title>str_to_mpn (245 samples, 0.04%)</title><rect x="1135.0" y="341" width="0.5" height="15.0" fill="rgb(228,150,41)" rx="2" ry="2" />
+<text  x="1138.02" y="351.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (2,386 samples, 0.39%)</title><rect x="1110.8" y="357" width="4.6" height="15.0" fill="rgb(229,175,38)" rx="2" ry="2" />
+<text  x="1113.79" y="367.5" ></text>
+</g>
+<g >
+<title>clear_page_erms (204 samples, 0.03%)</title><rect x="1121.0" y="277" width="0.4" height="15.0" fill="rgb(214,201,42)" rx="2" ry="2" />
+<text  x="1123.96" y="287.5" ></text>
+</g>
+<g >
+<title>BaseSpline::evaluateSlope (62 samples, 0.01%)</title><rect x="28.3" y="341" width="0.1" height="15.0" fill="rgb(214,172,46)" rx="2" ry="2" />
+<text  x="31.30" y="351.5" ></text>
+</g>
+<g >
+<title>page_cache_async_readahead (80 samples, 0.01%)</title><rect x="1140.6" y="213" width="0.1" height="15.0" fill="rgb(211,212,13)" rx="2" ry="2" />
+<text  x="1143.58" y="223.5" ></text>
+</g>
+<g >
+<title>ext4_da_write_begin (1,926 samples, 0.32%)</title><rect x="1156.4" y="165" width="3.7" height="15.0" fill="rgb(234,162,50)" rx="2" ry="2" />
+<text  x="1159.36" y="175.5" ></text>
+</g>
+<g >
+<title>unmap_region (228 samples, 0.04%)</title><rect x="1119.0" y="277" width="0.5" height="15.0" fill="rgb(227,138,0)" rx="2" ry="2" />
+<text  x="1122.05" y="287.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (120 samples, 0.02%)</title><rect x="44.9" y="309" width="0.3" height="15.0" fill="rgb(248,201,29)" rx="2" ry="2" />
+<text  x="47.95" y="319.5" ></text>
+</g>
+<g >
+<title>copy_user_enhanced_fast_string (60 samples, 0.01%)</title><rect x="1140.4" y="197" width="0.2" height="15.0" fill="rgb(213,178,12)" rx="2" ry="2" />
+<text  x="1143.44" y="207.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (81 samples, 0.01%)</title><rect x="34.7" y="325" width="0.2" height="15.0" fill="rgb(226,82,28)" rx="2" ry="2" />
+<text  x="37.73" y="335.5" ></text>
+</g>
+<g >
+<title>release_pages (129 samples, 0.02%)</title><rect x="1119.2" y="181" width="0.3" height="15.0" fill="rgb(211,35,20)" rx="2" ry="2" />
+<text  x="1122.23" y="191.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;lexicOrderProb&gt; &gt; (87 samples, 0.01%)</title><rect x="40.9" y="181" width="0.2" height="15.0" fill="rgb(224,216,11)" rx="2" ry="2" />
+<text  x="43.89" y="191.5" ></text>
+</g>
+<g >
+<title>prepare_exit_to_usermode (97 samples, 0.02%)</title><rect x="1123.6" y="373" width="0.2" height="15.0" fill="rgb(210,198,4)" rx="2" ry="2" />
+<text  x="1126.60" y="383.5" ></text>
+</g>
+<g >
+<title>operator new (99 samples, 0.02%)</title><rect x="1126.8" y="405" width="0.2" height="15.0" fill="rgb(216,66,36)" rx="2" ry="2" />
+<text  x="1129.79" y="415.5" ></text>
+</g>
+<g >
+<title>PosteriorEstimator::getQValues (81 samples, 0.01%)</title><rect x="28.7" y="405" width="0.2" height="15.0" fill="rgb(220,137,11)" rx="2" ry="2" />
+<text  x="31.72" y="415.5" ></text>
+</g>
+<g >
+<title>std::__parallel::sort&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, std::greater&lt;ScoreHolder&gt;, __gnu_parallel::default_parallel_tag&gt; (125 samples, 0.02%)</title><rect x="43.3" y="389" width="0.3" height="15.0" fill="rgb(250,207,37)" rx="2" ry="2" />
+<text  x="46.34" y="399.5" ></text>
+</g>
+<g >
+<title>__ext4_get_inode_loc (299 samples, 0.05%)</title><rect x="1185.6" y="69" width="0.6" height="15.0" fill="rgb(241,39,21)" rx="2" ry="2" />
+<text  x="1188.57" y="79.5" ></text>
+</g>
+<g >
+<title>ext4_dirty_inode (76 samples, 0.01%)</title><rect x="31.2" y="101" width="0.1" height="15.0" fill="rgb(228,7,23)" rx="2" ry="2" />
+<text  x="34.19" y="111.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (611 samples, 0.10%)</title><rect x="51.9" y="389" width="1.2" height="15.0" fill="rgb(224,173,50)" rx="2" ry="2" />
+<text  x="54.93" y="399.5" ></text>
+</g>
+<g >
+<title>__memset_avx2_erms (1,363 samples, 0.22%)</title><rect x="749.4" y="309" width="2.6" height="15.0" fill="rgb(241,136,2)" rx="2" ry="2" />
+<text  x="752.40" y="319.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;std::greater&lt;ScoreHolder&gt; &gt; &gt; (72 samples, 0.01%)</title><rect x="1125.8" y="357" width="0.1" height="15.0" fill="rgb(213,69,50)" rx="2" ry="2" />
+<text  x="1128.77" y="367.5" ></text>
+</g>
+<g >
+<title>ext4_mark_inode_dirty (990 samples, 0.16%)</title><rect x="1184.4" y="101" width="1.9" height="15.0" fill="rgb(208,221,38)" rx="2" ry="2" />
+<text  x="1187.38" y="111.5" ></text>
+</g>
+<g >
+<title>std::__introsort_loop&lt;__gnu_cxx::__normal_iterator&lt;ScoreHolder*, std::vector&lt;ScoreHolder, std::allocator&lt;ScoreHolder&gt; &gt; &gt;, long, __gnu_cxx::__ops::_Iter_comp_iter&lt;OrderScanMassCharge&gt; &gt; (364 samples, 0.06%)</title><rect x="52.4" y="309" width="0.7" height="15.0" fill="rgb(248,217,13)" rx="2" ry="2" />
+<text  x="55.41" y="319.5" ></text>
+</g>
+<g >
+<title>vm_munmap (95 samples, 0.02%)</title><rect x="1024.3" y="229" width="0.2" height="15.0" fill="rgb(241,146,23)" rx="2" ry="2" />
+<text  x="1027.31" y="239.5" ></text>
+</g>
+<g >
+<title>DataSet::readPsm (3,505 samples, 0.58%)</title><rect x="1129.7" y="389" width="6.8" height="15.0" fill="rgb(221,138,14)" rx="2" ry="2" />
+<text  x="1132.69" y="399.5" ></text>
+</g>
+</g>
+</svg>
