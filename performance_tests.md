@@ -111,3 +111,23 @@ The tests with large input data (100 million or more PSMs) were made on a cluste
 
 
 What can be concluded from the tests is that the time spent in mergeCpCnPairs shrink as the input size increases. Thus, even if you reduce the runtime of that function to 0 %, the total runtime for the program would not be reduced more than approximately 20 %.
+
+
+## FDR Calculation
+
+How FDR Calculations change in speed when some calculations are replaced by Quick-LOHify is presented in this section. Tests were made with 1,119,345 and 25,000,000 PSM:s as input respectively. The tests with 1,119,345 PSM:s were done on a system using the CPU model i7-10510U, the tests with 25,000,000 PSM:s on a system with i7-4790K. Both CPU:s have 8 threads.
+
+The tables below show the average runtime for a single FDR-calculation. FDR-calculations are done in 10 iterations in a standard utlization of the Percolator software. The numbers below were calculated by running Percolator 10 times, or in other words running 100 individual FDR-calculations and retrieving the average time in wall clock seconds.
+
+For 1,119,345 PSM:s the tests showed that FDR calculations are performed 36 % faster on a single thread and 44 % faster with 8 threads when using Quick-LOHify.
+
+| (1,119,345 PSM:s) | Original | QLOH |
+| :------------ |:---------------| :---- |
+|1 Thread| 5.45261 | 3.46485 |
+|8 Threads| 2.4223 | 1.34552 |
+
+
+| (25,000,000 PSM:s) | Original | QLOH |
+| :------------ |:---------------| :---- |
+|1 Thread| 136.7136 | ... |
+|8 Threads| ... | ... |
