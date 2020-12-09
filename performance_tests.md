@@ -126,8 +126,9 @@ For 1,119,345 PSM:s the tests showed that FDR calculations are performed 36 % fa
 |1 Thread| 5.45261 | 3.46485 |
 |8 Threads| 2.4223 | 1.34552 |
 
+For 25,000,000 PSM:s the tests showed that FDR calculations are performed 33 % faster on a single thread.
 
 | (25,000,000 PSM:s) | Original | QLOH |
 | :------------ |:---------------| :---- |
-|1 Thread| 136.7136 | ... |
+|1 Thread| 136.7136 | 91.44519 |
 |8 Threads| ... | ... |
