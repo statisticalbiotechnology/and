@@ -123,12 +123,12 @@ For 1,119,345 PSM:s the tests showed that FDR calculations are performed 36 % fa
 
 | (1,119,345 PSM:s) | Original | QLOH |
 | :------------ |:---------------| :---- |
-|1 Thread| 5.45261 | 3.46485 |
-|8 Threads| 2.4223 | 1.34552 |
+|1 Thread| 5.453 | 3.465 |
+|8 Threads| 2.422 | 1.346 |
 
-For 25,000,000 PSM:s the tests showed that FDR calculations are performed 33 % faster on a single thread.
+For 25,000,000 PSM:s the tests showed that FDR calculations are performed 33 % faster on a single thread and 42 % faster with 8 threads when using Quick-LOHify.
 
 | (25,000,000 PSM:s) | Original | QLOH |
 | :------------ |:---------------| :---- |
-|1 Thread| 136.7136 | 91.44519 |
-|8 Threads| ... | ... |
+|1 Thread| 136.714 | 91.445 |
+|8 Threads| 79.904 | 46.221 |
