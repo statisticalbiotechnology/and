@@ -115,20 +115,29 @@ What can be concluded from the tests is that the time spent in mergeCpCnPairs sh
 
 ## FDR Calculation
 
-How FDR Calculations change in speed when some calculations are replaced by Quick-LOHify is presented in this section. Tests were made with 1,119,345 and 25,000,000 PSM:s as input respectively. The tests with 1,119,345 PSM:s were done on a system using the CPU model i7-10510U, the tests with 25,000,000 PSM:s on a system with i7-4790K. Both CPU:s have 8 threads.
+How FDR Calculations change in speed when some calculations are replaced by Quick-LOHify is presented in this section. Tests were made with 1,119,345 and 25,000,000 PSM:s as input respectively. The tests with 1,119,345 PSM:s were done twice on two different computers. The first test was on a system using the CPU model i7-10510U, and the other on a system using the CPU model i7-4790K. The tests with 25,000,000 PSM:s were done on a system using i7-4790K. Both CPU:s have 8 threads.
 
 The tables below show the average runtime for a single FDR-calculation. FDR-calculations are done in 10 iterations in a standard utlization of the Percolator software. The numbers below were calculated by running Percolator 10 times, or in other words running 100 individual FDR-calculations and retrieving the average time in wall clock seconds.
 
-For 1,119,345 PSM:s the tests showed that FDR calculations are performed 36 % faster on a single thread and 44 % faster with 8 threads when using Quick-LOHify.
+For 1,119,345 PSM:s using a i7-10510U CPU the tests showed that FDR calculations are performed 36 % faster on a single thread and 44 % faster with 8 threads when using Quick-LOHify.
 
-| (1,119,345 PSM:s) | Original | QLOH |
+| (1,119,345 PSM:s, i7-10510U) | Original | QLOH |
 | :------------ |:---------------| :---- |
 |1 Thread| 5.453 | 3.465 |
 |8 Threads| 2.422 | 1.346 |
 
+For 1,119,345 PSM:s using a i7-4790K CPU the tests showed that FDR calculations are performed 37 % faster on a single thread and 53 % faster with 8 threads when using Quick-LOHify.
+
+| (1,119,345 PSM:s, i7-4790K) | Original | QLOH |
+| :------------ |:---------------| :---- |
+|1 Thread| 4.378 | 2.773 |
+|8 Threads| 2.343 | 1.107 |
+
 For 25,000,000 PSM:s the tests showed that FDR calculations are performed 33 % faster on a single thread and 42 % faster with 8 threads when using Quick-LOHify.
 
-| (25,000,000 PSM:s) | Original | QLOH |
+| (25,000,000 PSM:s, i7-4790K) | Original | QLOH |
 | :------------ |:---------------| :---- |
 |1 Thread| 136.714 | 91.445 |
 |8 Threads| 79.904 | 46.221 |
+
+One thing to note is that the number of threads are at most 8, but the software is configured so that it's possible for the computer to select a lesser amount.
